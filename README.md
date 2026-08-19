@@ -27,6 +27,17 @@ packages), and Claude Code installed. There are no hardcoded absolute paths;
 the config file re-locates the `claude` executable when moved to another
 machine.
 
+## Updating
+
+- Cloned with git: `git pull` inside the folder.
+- Downloaded as a ZIP: download again and extract over the folder.
+
+Either way user data survives: `config.json` is not part of the repository, and
+caches, logs and backups live in `%LOCALAPPDATA%\ClaudeWorkbench`.
+
+`Help → Check for updates` compares the installed version against the latest
+GitHub release — only when clicked. The tool makes no other network requests.
+
 ## The two shortcuts
 
 | Shortcut | What it does |
@@ -77,7 +88,7 @@ is the launch list; top to bottom is the order sessions open in.
 | **File** | New session… (Ctrl+N) / Add from resume command… / Save (Ctrl+S) / Exit |
 | **View** | Show cost / Show context usage / Search session contents / Last 30 days only / Show archived |
 | **Tools** | Claude Code settings… (Ctrl+,) / Workbench options… / Open at startup / Program folder / Error log |
-| **Help** | About |
+| **Help** | Check for updates / About |
 
 Actions that already have a button (add, rename, reorder, remove, rescan,
 launch now) are not duplicated in the menus.

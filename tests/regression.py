@@ -210,6 +210,19 @@ def main():
                   all(v in ("busy", "idle") for v in st_map.values()),
                   set(st_map.values()))
 
+        # 版本比較
+        import version
+        check("版本比較：新舊分得開",
+              version.parse("1.10.0") > version.parse("1.9.9") and
+              version.parse("v1.2.0") == version.parse("1.2.0") and
+              version.parse("1.2") < version.parse("1.2.1"))
+        check("版本比較：怪字串不炸",
+              isinstance(version.parse("weird"), tuple))
+        import i18n as _i
+        check("檢查更新的翻譯齊全",
+              all(k in _i.EN for k in ("檢查更新", "檢查更新失敗",
+                                       "已是最新版本（v%s）")))
+
         # 快取位置
         check("掃描快取在資料目錄",
               sessions.CACHE.startswith(appdata.data_dir()))

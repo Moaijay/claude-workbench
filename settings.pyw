@@ -430,6 +430,7 @@ class App(ttk.Frame):
         bar.add_cascade(label=tr("工具"), menu=m)
 
         m = tk.Menu(bar, tearoff=0)
+        m.add_command(label=tr("檢查更新"), command=self.check_updates)
         m.add_command(label=tr("關於"), command=self.about)
         bar.add_cascade(label=tr("說明"), menu=m)
 
@@ -1418,6 +1419,43 @@ class App(ttk.Frame):
             os.startfile(path)
         except OSError as e:
             messagebox.showwarning(tr("Claude 工作台"), str(e))
+
+    def check_updates(self):
+        """點了才連 GitHub Releases API 比對版本；平時不發任何網路請求。"""
+        import version
+        self.status.configure(text=tr("檢查更新中…"))
+
+        def work():
+            import json as _json
+            import urllib.request
+            req = urllib.request.Request(
+                "https://api.github.com/repos/%s/releases/latest"
+                % version.REPO,
+                headers={"User-Agent": "claude-workbench",
+                         "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return _json.load(r)
+
+        def done(data, err):
+            if err or not isinstance(data, dict):
+                self.status.configure(text=tr("檢查更新失敗"))
+                return
+            tag = (data.get("tag_name") or "").lstrip("vV")
+            cur = version.__version__
+            if tag and version.parse(tag) > version.parse(cur):
+                self.status.configure(text="")
+                if messagebox.askyesno(
+                        tr("檢查更新"),
+                        tr("有新版本 v%s（目前 v%s），開啟下載頁？")
+                        % (tag, cur)):
+                    import webbrowser
+                    webbrowser.open(
+                        data.get("html_url")
+                        or "https://github.com/%s/releases" % version.REPO)
+            else:
+                self.status.configure(text=tr("已是最新版本（v%s）") % cur)
+
+        self.run_bg(work, done)
 
     def about(self):
         import claudeschema

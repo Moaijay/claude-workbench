@@ -319,6 +319,12 @@ EN = {
     "清單中的對話均已開啟：\n\n%s":
         "Every session in the list is already open:\n\n%s",
     "claude 回報失敗": "claude reported a failure",
+    "檢查更新": "Check for updates",
+    "檢查更新中…": "Checking for updates…",
+    "檢查更新失敗": "Update check failed",
+    "有新版本 v%s（目前 v%s），開啟下載頁？":
+        "Version v%s is available (current v%s). Open the download page?",
+    "已是最新版本（v%s）": "Up to date (v%s)",
     "(無標題)": "(untitled)",
     "找不到對話紀錄": "Session log not found",
     "目標資料夾不存在：%s": "Target folder does not exist: %s",
