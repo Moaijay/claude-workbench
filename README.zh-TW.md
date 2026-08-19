@@ -10,17 +10,38 @@
 
 ## 安裝
 
-把整個資料夾複製到任何位置，然後執行：
+1. 取得資料夾 —— 二擇一：
 
-```
-python install.py
-```
+   ```
+   git clone https://github.com/Moaijay/claude-workbench
+   ```
 
-會產生圖示、找出這台電腦實際的桌面位置（處理 OneDrive 之類的重導向），並建立兩個捷徑。
-移除用 `python install.py --uninstall`。
+   或在 GitHub 按 Code → Download ZIP，解壓到任何位置
+   （例如 `C:\Tools\claude-workbench`）。
 
-需求：Windows、Python 3.8 以上（只用內建的 tkinter）、已安裝 Claude Code。
-程式碼中沒有硬編的絕對路徑；設定檔換機器時會自動修正 `claude` 執行檔的位置。
+2. **在那個資料夾裡**開終端機（檔案總管：資料夾內空白處按右鍵 →
+   「在終端機中開啟」），執行：
+
+   ```
+   python install.py
+   ```
+
+   指令碼一律以自己檔案的位置定位，因此在任何目錄用完整路徑執行也可以：
+   `python C:\Tools\claude-workbench\install.py`。
+
+3. 桌面出現兩個捷徑。先開 **Claude 工作台 設定** 挑要固定開啟的對話。
+
+`python install.py --uninstall` 移除捷徑與開機自啟；之後刪掉資料夾即完全清除。
+
+注意事項：
+
+- 需求：Windows、Python 3.8 以上（只用內建 tkinter，無第三方套件）、已安裝
+  Claude Code。
+- 打 `python` 卻跳出 Microsoft Store ＝ 還沒裝 Python —— 從 python.org 或
+  Store 裝好後重跑（`py install.py` 也可以）。
+- 不要用滑鼠雙擊 `install.py`，主控台會在看到輸出前就關閉。
+- `claude` 執行檔從 PATH 或 `~\.local\bin` 尋找；裝在別處時在
+  `config.json` 的 `"claude"` 指定。
 
 ## 更新
 

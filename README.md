@@ -12,20 +12,43 @@ window, and a double-click opens it.
 
 ## Install
 
-Copy the folder anywhere and run:
+1. Get the folder — either
 
-```
-python install.py
-```
+   ```
+   git clone https://github.com/Moaijay/claude-workbench
+   ```
 
-This generates the icons, finds where the desktop actually lives (handling
-redirections such as OneDrive), and creates two shortcuts.
-`python install.py --uninstall` removes them.
+   or Code → Download ZIP on GitHub, extracted anywhere
+   (`C:\Tools\claude-workbench` is a reasonable home).
 
-Requirements: Windows, Python 3.8 or later (tkinter only, no third-party
-packages), and Claude Code installed. There are no hardcoded absolute paths;
-the config file re-locates the `claude` executable when moved to another
-machine.
+2. Open a terminal **in that folder** (Explorer: right-click inside it →
+   *Open in Terminal*) and run:
+
+   ```
+   python install.py
+   ```
+
+   The script locates everything relative to its own file, so a full path
+   from any directory works just as well:
+   `python C:\Tools\claude-workbench\install.py`.
+
+3. Two shortcuts appear on the desktop. Open **Claude 工作台 設定** first
+   and pin the sessions to reopen.
+
+`python install.py --uninstall` removes the shortcuts and the autostart
+entry; deleting the folder afterwards removes everything else.
+
+Notes:
+
+- Requirements: Windows, Python 3.8 or later (tkinter only, no third-party
+  packages), Claude Code installed.
+- If typing `python` opens the Microsoft Store, Python is not installed yet —
+  install it from python.org or the Store, then run the command again
+  (`py install.py` also works).
+- Do not double-click `install.py`; the console closes before the output can
+  be read.
+- The `claude` executable is found via PATH or `~\.local\bin`. Installed
+  somewhere else, it can be set in `config.json` (`"claude"`).
 
 ## Updating
 
