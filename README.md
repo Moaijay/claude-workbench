@@ -28,11 +28,16 @@ window, and a double-click opens it.
    python install.py
    ```
 
-   The script locates everything relative to its own file, so a full path
+   `install.py` is one of the files extracted in step 1; the command means
+   "run this file with Python". Finding the desktop (OneDrive redirection
+   included), generating icons and creating shortcuts all happens inside the
+   file. It locates everything relative to its own location, so a full path
    from any directory works just as well:
    `python C:\Tools\claude-workbench\install.py`.
 
-3. Two shortcuts appear on the desktop. Open **Claude 工作台 設定** first
+3. Two `[OK]` lines and a completion message mean the install is done and
+   the two shortcuts are on the desktop (extracting alone puts nothing
+   there). Open **Claude 工作台 設定** first
    and pin the sessions to reopen.
 
 `python install.py --uninstall` removes the shortcuts and the autostart

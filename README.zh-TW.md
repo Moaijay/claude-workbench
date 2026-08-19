@@ -26,10 +26,13 @@
    python install.py
    ```
 
-   指令碼一律以自己檔案的位置定位，因此在任何目錄用完整路徑執行也可以：
-   `python C:\Tools\claude-workbench\install.py`。
+   `install.py` 是第 1 步解壓出來的檔案之一；這行指令的意思是「用 Python
+   執行這個檔案」。找桌面（含 OneDrive 重導向）、產生圖示、建捷徑的邏輯都在
+   檔案內。指令碼一律以自己檔案的位置定位，因此在任何目錄用完整路徑執行也
+   可以：`python C:\Tools\claude-workbench\install.py`。
 
-3. 桌面出現兩個捷徑。先開 **Claude 工作台 設定** 挑要固定開啟的對話。
+3. 看到兩行 `[OK]` 與「完成」訊息即安裝完成，桌面出現兩個捷徑
+   （解壓本身不會在桌面產生任何東西）。先開 **Claude 工作台 設定** 挑要固定開啟的對話。
 
 `python install.py --uninstall` 移除捷徑與開機自啟；之後刪掉資料夾即完全清除。
 
