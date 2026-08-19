@@ -225,6 +225,90 @@ def main():
                     os.rmdir(d)
             os.rmdir(target)
 
+        # 脈絡視窗依模型世代
+        check("脈絡視窗：新世代 1M",
+              sessions.context_window("claude-opus-5") == 1_000_000 and
+              sessions.context_window("claude-sonnet-4-6") == 1_000_000)
+        check("脈絡視窗：舊世代 200K",
+              sessions.context_window("claude-opus-4-5") == 200_000 and
+              sessions.context_window("claude-sonnet-4-20250514") == 200_000 and
+              sessions.context_window("claude-3-5-sonnet-20241022") == 200_000)
+        check("脈絡視窗：Haiku 200K",
+              sessions.context_window("claude-haiku-4-5") == 200_000)
+
+        # ---------- 子代理紀錄 ----------
+        subproj = os.path.join(sessions.PROJECTS, "zz-test-sub")
+        sid_b = "00000000-0000-0000-0000-0000000000b1"
+        sid_empty = "00000000-0000-0000-0000-0000000000b2"
+        main_f = os.path.join(subproj, sid_b + ".jsonl")
+        sub_dir = os.path.join(subproj, sid_b, "subagents", "workflows",
+                               "wf_x")
+        sub_f = os.path.join(sub_dir, "agent-test1.jsonl")
+        empty_f = os.path.join(subproj, sid_empty + ".jsonl")
+        target2 = os.path.join(sandbox_dir, "movetarget2")
+        dest_proj = os.path.join(sessions.PROJECTS,
+                                 sessions.project_dir_name(target2))
+        os.makedirs(sub_dir, exist_ok=True)
+        os.makedirs(target2, exist_ok=True)
+        try:
+            rec = {"type": "assistant", "cwd": "X", "message": {
+                "id": "mb1", "model": "claude-opus-5",
+                "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}}
+            with open(main_f, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec) + "\n")            # $5
+            rec["message"]["id"] = "ms1"
+            rec["message"]["usage"]["input_tokens"] = 2_000_000   # $10
+            with open(sub_f, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec) + "\n")
+                fh.write("NEEDLE-zz-sub-search\n")
+            with open(empty_f, "w", encoding="utf-8") as fh:
+                fh.write('{"type":"user"}\n')
+
+            check("parent_of 解析母對話", sessions.parent_of(sub_f) == sid_b)
+            s2 = {x["id"]: x for x in sessions.scan()}
+            check("小檔但有計費回覆會列出", sid_b in s2)
+            check("子代理費用歸母對話",
+                  sid_b in s2 and abs(s2[sid_b]["cost"] - 15.0) < 0.01,
+                  s2.get(sid_b, {}).get("cost"))
+            check("無計費回覆的空檔不列出", sid_empty not in s2)
+            s3 = {x["id"]: x for x in sessions.scan()}
+            check("重掃不重複累計子代理費用",
+                  sid_b in s3 and abs(s3[sid_b]["cost"] - 15.0) < 0.01,
+                  s3.get(sid_b, {}).get("cost"))
+            hits2 = sessions.grep("NEEDLE-zz-sub-search")
+            check("全文搜尋涵蓋子代理且歸母對話", hits2.get(sid_b) == 1,
+                  hits2)
+            sig1 = sessions.signature()
+            with open(sub_f, "a", encoding="utf-8") as fh:
+                fh.write("x\n")
+            check("子代理變動會改變 signature",
+                  sessions.signature() != sig1)
+
+            ok5, err5 = sessions.move_session(sid_b, target2)
+            moved_sub = os.path.join(dest_proj, sid_b, "subagents",
+                                     "workflows", "wf_x", "agent-test1.jsonl")
+            check("搬移連子代理目錄一起", ok5 and os.path.exists(moved_sub),
+                  err5)
+        finally:
+            for p in (main_f, empty_f, sub_f,
+                      os.path.join(dest_proj, sid_b + ".jsonl"),
+                      os.path.join(dest_proj, sid_b, "subagents",
+                                   "workflows", "wf_x", "agent-test1.jsonl")):
+                if os.path.exists(p):
+                    os.remove(p)
+            for base in (subproj, dest_proj):
+                for d in (os.path.join(base, sid_b, "subagents", "workflows",
+                                       "wf_x"),
+                          os.path.join(base, sid_b, "subagents", "workflows"),
+                          os.path.join(base, sid_b, "subagents"),
+                          os.path.join(base, sid_b),
+                          base):
+                    if os.path.isdir(d):
+                        try:
+                            os.rmdir(d)
+                        except OSError:
+                            pass
+
         # 執行中狀態為字典（用替換前的原函式測）
         st_map = real_running_status()
         check("running_status 回傳字典", isinstance(st_map, dict),
@@ -268,6 +352,12 @@ def main():
         check("哨兵鍵在",
               sum(1 for k in claudeschema.SENTINELS
                   if k in (sch.get("keys") or {})) >= 2)
+        check("enum 只綁定設定鍵",
+              all(k in sch["keys"] for k in sch.get("enums") or {}) and
+              len(sch.get("enums") or {}) >= 20,
+              "%d 組" % len(sch.get("enums") or {}))
+        check("effortLevel 枚舉含 xhigh",
+              "xhigh" in (sch.get("enums") or {}).get("effortLevel", []))
         check("_sane 擋空結果", not claudeschema._sane({}))
         old_cache, old_scan = claudeschema.CACHE, claudeschema._scan
         try:

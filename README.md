@@ -10,6 +10,8 @@ window, and a double-click opens it.
 > Unofficial community tool, not affiliated with or endorsed by Anthropic.
 > Claude and Claude Code are trademarks of Anthropic.
 
+![Claude Workbench](docs/screenshot.png)
+
 ## Install
 
 ```
@@ -168,11 +170,14 @@ place: Enter confirms, Esc cancels.
   name in Claude is synced automatically; for one that is open, only the window
   name changes and the status bar says so.
 
+Syncing the name in Claude is done by the official CLI and appends the rename
+records to that session's log. It is handled locally, without a model call.
+
 ## Move to another folder
 
 "Move to another folder…" in the left context menu moves that session's log
-into another project folder, so it can be resumed from the `claude -r` picker
-there. Within one drive this is a rename, an atomic operation that leaves the
+(subagent transcripts included) into another project folder, so it can be
+resumed from the `claude -r` picker there. Within one drive this is a rename, an atomic operation that leaves the
 contents unchanged. A session that is currently open is refused; a session in
 the launch list has its folder updated to match.
 
@@ -197,13 +202,19 @@ cost recorded in `.claude.json`, sessions completed in a single run agree
 within ±11%; sessions spread over several days and several runs come out
 higher, because the official field only records the last run.
 
+Costs include the subagent and workflow transcripts filed under the session
+(`<session-id>/subagents/`); those agents bill separately and are never
+recorded in the main log. On machines that use workflows heavily they can be
+a third of the total.
+
 Implementation note: a single reply is written to the session log several
 times while streaming, and roughly half the records are duplicates. Summing
 them directly overcounts by two to three times, so records are deduplicated by
 message id and the last one is kept.
 
 When a model has no rate data, the cost row is marked **⚠ No pricing data**
-rather than falling back to an old rate.
+and its records are included in the total at the Opus rate as a provisional
+estimate.
 
 ## Full-text search
 
@@ -357,7 +368,7 @@ the default size is used.
 - **Cache location**: the scan cache and schema cache live in the user data
   directory, so the install folder can be read-only.
 - **Regression tests**: `python tests/regression.py` runs against a sandbox
-  copy of the config file and does not disturb a workbench in use. 75 checks,
+  copy of the config file and does not disturb a workbench in use. 88 checks,
   including the invariant that no session log is ever deleted or truncated.
 
 ## Known technical pitfalls
@@ -419,8 +430,8 @@ This tool relies on three undocumented Claude Code internals, verified against
    registry; when that directory does not exist it falls back to comparing
    process command lines.
 3. Cost rates are a hand-maintained table (published pricing, 2026-08).
-   Unknown models are marked ⚠ instead of being priced at an old rate, and a
-   price change to an existing model is not picked up automatically.
+   Unknown models are marked ⚠ and estimated at the Opus rate, and a price
+   change to an existing model is not picked up automatically.
 
 All three degrade rather than break when Claude Code changes. Keeping up with
 every Claude Code release is not promised.

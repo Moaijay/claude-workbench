@@ -26,9 +26,10 @@ SCHEMA_RE = re.compile(
     rb"[^;{}]{0,600}?\.describe\((['\"])(.{1,900}?)\2\s*\)",
     re.DOTALL)
 
-# 枚舉：Nr(["a","b","c"])
+# 枚舉：Nr(["a","b","c"])。只在 SCHEMA_RE 命中的宣告範圍內比對——
+# 全檔掃描會綁到同名的無關陣列，產生看似合理但無效的選項值。
 ENUM_RE = re.compile(
-    rb"([A-Za-z][A-Za-z0-9]{2,40})\s*:\s*[A-Za-z0-9_$]{1,8}\(\s*\[([^\]]{1,300})\]")
+    rb"^[A-Za-z][A-Za-z0-9]{2,40}\s*:\s*[A-Za-z0-9_$]{1,8}\(\s*\[([^\]]{1,300})\]")
 
 # 抽取結果的健全檢查：一定存在的鍵抓不到、或總數過低＝打包格式變了
 # 導致抽取失敗，不是這個版本真的沒有這些設定。
@@ -65,7 +66,7 @@ def _scan(path):
     with open(path, "rb") as fh:
         blob = fh.read()
 
-    keys = {}
+    keys, enums = {}, {}
     for m in SCHEMA_RE.finditer(blob):
         key = m.group(1).decode("ascii", "ignore")
         desc = m.group(3).decode("utf-8", "replace")
@@ -73,14 +74,13 @@ def _scan(path):
         # 同一個鍵可能出現多次，取最長的說明
         if len(desc) > len(keys.get(key, "")):
             keys[key] = desc
-
-    enums = {}
-    for m in ENUM_RE.finditer(blob):
-        key = m.group(1).decode("ascii", "ignore")
-        raw = m.group(2).decode("utf-8", "replace")
-        vals = re.findall(r"[\"']([^\"']{1,40})[\"']", raw)
-        if vals and key not in enums:
-            enums[key] = vals
+        if key not in enums:
+            em = ENUM_RE.match(m.group(0))
+            if em:
+                raw = em.group(1).decode("utf-8", "replace")
+                vals = re.findall(r"[\"']([^\"']{1,40})[\"']", raw)
+                if vals:
+                    enums[key] = vals
     return keys, enums
 
 
@@ -93,7 +93,8 @@ def load(claude=None, force=False):
     exe = claude or claude_path()
     try:
         st = os.stat(exe)
-        sig = "%s|%d|%d" % (exe, st.st_size, int(st.st_mtime))
+        # 結尾是抽取邏輯的版本；改了抽取方式要跟著改，讓舊快取作廢
+        sig = "%s|%d|%d|e2" % (exe, st.st_size, int(st.st_mtime))
     except OSError:
         sig = None
 

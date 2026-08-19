@@ -13,11 +13,22 @@ PROJECTS = os.path.join(os.path.expanduser("~"), ".claude", "projects")
 CACHE = appdata.cache_path("scan-cache.json")
 CACHE_VERSION = 4           # 格式改了就把舊快取作廢
 
-# 脈絡視窗大小（token）。目前世代預設 1M，Haiku 200K。
+# 脈絡視窗大小（token）。目前世代預設 1M；Haiku 與 4.6 之前的舊世代為 200K。
 CONTEXT_WINDOW = {
     "claude-haiku-4-5": 200_000,
 }
+LEGACY_200K = ("claude-3-", "claude-haiku-", "claude-opus-4-1",
+               "claude-opus-4-2025", "claude-opus-4-5",
+               "claude-sonnet-4-2025", "claude-sonnet-4-5")
 DEFAULT_WINDOW = 1_000_000
+
+
+def context_window(model):
+    if model in CONTEXT_WINDOW:
+        return CONTEXT_WINDOW[model]
+    if any(model.startswith(p) for p in LEGACY_200K):
+        return 200_000
+    return DEFAULT_WINDOW
 
 MIN_SIZE = 20 * 1024        # 小於此大小視為沒有實際內容的空對話
 META_LINES = 3000           # 找開頭訊息／標題最多看幾行
@@ -43,9 +54,20 @@ FAST_RATE = 2.0             # fast mode＝標準費率的 2 倍（usage.speed ==
 WEB_SEARCH_USD = 0.01       # 每次 web search（$10／1000 次）
 
 
+# 子代理與 workflow 的紀錄在 <專案>/<母對話id>/subagents/ 底下，
+# 獨立計費、不寫回母檔
+SUB_GLOB = os.path.join(PROJECTS, "*", "*", "subagents", "**", "*.jsonl")
+
+
 def project_dir_name(path):
     """資料夾路徑 → ~/.claude/projects 底下的目錄名（非英數一律換成連字號）。"""
     return re.sub(r"[^A-Za-z0-9]", "-", path)
+
+
+def parent_of(sub_path):
+    """子代理紀錄檔路徑 → 母對話 id；不是子代理路徑時回空字串。"""
+    parts = os.path.relpath(sub_path, PROJECTS).split(os.sep)
+    return parts[1] if len(parts) >= 4 and parts[2] == "subagents" else ""
 
 
 def _first_text(msg):
@@ -169,7 +191,7 @@ def read_one(path):
                 + u.get("cache_creation_input_tokens", 0))
         if used:
             info["ctx"] = used
-            info["ctx_pct"] = used / CONTEXT_WINDOW.get(model, DEFAULT_WINDOW)
+            info["ctx_pct"] = used / context_window(model)
         break
     return info
 
@@ -184,7 +206,11 @@ def label(info):
 
 
 def scan(use_cache=True, progress=None):
-    """回傳所有對話，依最後使用時間新到舊排序。"""
+    """回傳所有對話，依最後使用時間新到舊排序。
+
+    金額含掛在該對話底下的子代理與 workflow 紀錄。小於 MIN_SIZE 的主檔
+    多半是沒有實際內容的空對話，但只要有計費回覆仍會列出。
+    """
     cache = {}
     if use_cache and os.path.exists(CACHE):
         try:
@@ -195,24 +221,51 @@ def scan(use_cache=True, progress=None):
         except Exception:
             cache = {}
 
-    files = [f for f in glob.glob(os.path.join(PROJECTS, "*", "*.jsonl"))
-             if os.path.getsize(f) >= MIN_SIZE]
+    files = glob.glob(os.path.join(PROJECTS, "*", "*.jsonl"))
+    sub_files = glob.glob(SUB_GLOB, recursive=True)
+    total = len(files) + len(sub_files)
     out, fresh = [], {}
-    for n, f in enumerate(files):
+
+    def read_cached(f, n):
         st = os.stat(f)
         hit = cache.get(f)
         if hit and hit.get("size") == st.st_size and \
                 abs(hit.get("mtime", 0) - st.st_mtime) < 1:
-            info = hit
-        else:
-            if progress:
-                progress(n + 1, len(files))
-            try:
-                info = read_one(f)
-            except OSError:
-                continue
+            return hit
+        if progress:
+            progress(n + 1, total)
+        return read_one(f)
+
+    for n, f in enumerate(files):
+        try:
+            info = read_cached(f, n)
+        except OSError:
+            continue
         fresh[f] = info
-        out.append(info)
+        if info["size"] >= MIN_SIZE or info["cost"] > 0:
+            # 快取存母檔本身的花費；顯示用的副本才加上子代理
+            out.append(dict(info))
+
+    sub_cost, sub_unpriced = {}, {}
+    for n, f in enumerate(sub_files):
+        try:
+            info = read_cached(f, len(files) + n)
+        except OSError:
+            continue
+        fresh[f] = info
+        pid = parent_of(f)
+        if not pid:
+            continue
+        sub_cost[pid] = sub_cost.get(pid, 0.0) + info["cost"]
+        for m in info.get("unpriced") or []:
+            sub_unpriced.setdefault(pid, set()).add(m)
+    for info in out:
+        pid = info["id"]
+        if pid in sub_cost:
+            info["cost"] += sub_cost[pid]
+        if pid in sub_unpriced:
+            info["unpriced"] = sorted(set(info.get("unpriced") or [])
+                                      | sub_unpriced[pid])
 
     try:
         with open(CACHE, "w", encoding="utf-8") as fh:
@@ -226,9 +279,10 @@ def scan(use_cache=True, progress=None):
 
 
 def signature():
-    """所有紀錄檔的 (路徑, 大小, 修改時間) 摘要，供偵測變動。"""
+    """所有紀錄檔（含子代理）的 (路徑, 大小, 修改時間) 摘要，供偵測變動。"""
     out = []
-    for f in glob.glob(os.path.join(PROJECTS, "*", "*.jsonl")):
+    for f in (glob.glob(os.path.join(PROJECTS, "*", "*.jsonl"))
+              + glob.glob(SUB_GLOB, recursive=True)):
         try:
             st = os.stat(f)
         except OSError:
@@ -282,9 +336,20 @@ def move_session(session_id, new_cwd):
         return False, tr("已在該資料夾")
     if os.path.exists(dest):
         return False, tr("目標已存在同名紀錄")
+    # 該對話的子代理紀錄在同層的 <id>/ 目錄，要跟著搬，否則會變成孤兒
+    src_sub = os.path.join(os.path.dirname(src), session_id)
+    dest_sub = os.path.join(dest_dir, session_id)
+    if os.path.isdir(src_sub) and os.path.exists(dest_sub):
+        return False, tr("目標已存在同名紀錄")
     try:
         os.makedirs(dest_dir, exist_ok=True)
         os.replace(src, dest)
+        if os.path.isdir(src_sub):
+            try:
+                os.replace(src_sub, dest_sub)
+            except OSError as e:
+                os.replace(dest, src)
+                return False, str(e)
     except OSError as e:
         return False, str(e)
     return True, None
@@ -304,7 +369,8 @@ def grep(needle, limit=200, progress=None):
     pats.add(escaped.encode("utf-8"))
     pats = sorted(pats)
 
-    files = glob.glob(os.path.join(PROJECTS, "*", "*.jsonl"))
+    files = (glob.glob(os.path.join(PROJECTS, "*", "*.jsonl"))
+             + glob.glob(SUB_GLOB, recursive=True))
     for n, f in enumerate(files):
         if progress:
             progress(n + 1, len(files))
@@ -324,7 +390,9 @@ def grep(needle, limit=200, progress=None):
         except OSError:
             continue
         if hits:
-            found[os.path.basename(f)[:-6]] = hits
+            # 子代理的命中歸給母對話
+            sid = parent_of(f) or os.path.basename(f)[:-6]
+            found[sid] = found.get(sid, 0) + hits
             if len(found) >= limit:
                 break
     return found
