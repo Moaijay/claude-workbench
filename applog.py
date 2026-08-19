@@ -29,6 +29,15 @@ def get():
     return _logger
 
 
+def _tr(s):
+    """例外處理路徑上的翻譯：i18n 本身出問題時原文照出，不得再拋錯。"""
+    try:
+        from i18n import tr
+        return tr(s)
+    except Exception:
+        return s
+
+
 def _notify(text):
     """跳錯誤視窗；再失敗就放棄，避免遞迴。"""
     global _notifying
@@ -45,8 +54,8 @@ def _notify(text):
             root.withdraw()
             owned = True
         messagebox.showerror(
-            "Claude 工作台",
-            "發生未預期的錯誤\n\n%s\n\n詳細內容：%s"
+            _tr("Claude 工作台"),
+            _tr("發生未預期的錯誤\n\n%s\n\n詳細內容：%s")
             % (text, appdata.log_path()))
         if owned:
             root.destroy()

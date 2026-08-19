@@ -319,6 +319,15 @@ EN = {
     "清單中的對話均已開啟：\n\n%s":
         "Every session in the list is already open:\n\n%s",
     "claude 回報失敗": "claude reported a failure",
+    "(無標題)": "(untitled)",
+    "找不到對話紀錄": "Session log not found",
+    "目標資料夾不存在：%s": "Target folder does not exist: %s",
+    "已在該資料夾": "Already in that folder",
+    "目標已存在同名紀錄": "A log with the same id already exists at the target",
+    "設定檔損壞（%s）\n已保留於 %s\n目前載入預設值":
+        "Config file corrupt (%s)\nPreserved at %s\nDefaults loaded",
+    "發生未預期的錯誤\n\n%s\n\n詳細內容：%s":
+        "Unexpected error\n\n%s\n\nDetails: %s",
     "指令跑完了，但找不到新對話的紀錄檔":
         "The command finished but no session log was created",
 

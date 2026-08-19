@@ -71,7 +71,8 @@ def load():
                 os.replace(PATH, quarantine)
             except OSError:
                 quarantine = PATH
-            LOAD_ERROR = ("設定檔損壞（%s）\n已保留於 %s\n目前載入預設值"
+            from i18n import tr
+            LOAD_ERROR = (tr("設定檔損壞（%s）\n已保留於 %s\n目前載入預設值")
                           % (e, quarantine))
             try:
                 import applog

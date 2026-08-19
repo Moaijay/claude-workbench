@@ -7,6 +7,7 @@ import re
 import time
 
 import appdata
+from i18n import tr
 
 PROJECTS = os.path.join(os.path.expanduser("~"), ".claude", "projects")
 CACHE = appdata.cache_path("scan-cache.json")
@@ -179,7 +180,7 @@ def label(info):
         if info.get(key):
             return info[key]
     f = info.get("first", "")
-    return f[:60] if f else "(無標題)"
+    return f[:60] if f else tr("(無標題)")
 
 
 def scan(use_cache=True, progress=None):
@@ -272,15 +273,15 @@ def move_session(session_id, new_cwd):
     """
     src = find_file(session_id)
     if not src:
-        return False, "找不到對話紀錄"
+        return False, tr("找不到對話紀錄")
     if not os.path.isdir(new_cwd):
-        return False, "目標資料夾不存在：%s" % new_cwd
+        return False, tr("目標資料夾不存在：%s") % new_cwd
     dest_dir = os.path.join(PROJECTS, project_dir_name(new_cwd))
     dest = os.path.join(dest_dir, session_id + ".jsonl")
     if os.path.normcase(dest) == os.path.normcase(src):
-        return False, "已在該資料夾"
+        return False, tr("已在該資料夾")
     if os.path.exists(dest):
-        return False, "目標已存在同名紀錄"
+        return False, tr("目標已存在同名紀錄")
     try:
         os.makedirs(dest_dir, exist_ok=True)
         os.replace(src, dest)

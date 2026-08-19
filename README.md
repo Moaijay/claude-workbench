@@ -93,9 +93,8 @@ the lookup key for the English strings. Anything without an English entry
 falls back to the Chinese original rather than showing a blank or raising an
 error.
 
-Messages produced by the lower layers are still Chinese only: the placeholder
-for an untitled session, the errors returned when moving a session log, the
-corrupt-config notice, and the unexpected-error dialog.
+Low-level messages — the untitled-session placeholder, move errors, the
+corrupt-config notice and the crash dialog — are translated as well.
 
 ## Archiving
 
@@ -318,8 +317,9 @@ exception, because agreeing once there would pre-trust everything under it.
 ## Remembered UI state
 
 Window size and position (including whether it is maximized), each column
-width, and the "Last 30 days only", "Show cost" and full-text-search toggles
-are written to the `ui` block of `config.json` when the window closes.
+width, the sort order, and the "Last 30 days only", "Show cost",
+"Show context usage", "Show archived" and full-text-search toggles are written
+to the `ui` block of `config.json` when the window closes.
 
 Two exceptions: the search box is not remembered, and the Session column width
 is computed to fill the remaining space after the fixed columns, so adjust the

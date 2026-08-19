@@ -95,6 +95,11 @@ Claude Code 官方沒有封存或隱藏單一對話的功能。官方的清理�
 
 家目錄的對話每次開啟都會詢問一次資料夾信任，欄位為家目錄時下方會提示，但不阻擋。
 
+## 語言
+
+`工具 → 工作台選項… → 顯示 → 語言 / Language`：auto／zh-TW／en，auto 跟隨
+Windows 介面語言，重啟生效。查無英文翻譯的字串顯示中文原文。
+
 ## 重新命名
 
 **F2**（或右鍵選單、右側按鈕）在列上直接就地編輯：Enter 確認、Esc 取消。
@@ -240,7 +245,7 @@ Claude Code 不儲存家目錄的信任狀態：
 - **備份輪替**：每次儲存前備份至 `%LOCALAPPDATA%\ClaudeWorkbench\backups`，
   各保留最近 10 份；`settings.json` 亦同。
 - **快取位置**：掃描與 schema 快取存於使用者資料目錄，安裝目錄可唯讀。
-- **回歸測試**：`python tests/regression.py`，於設定檔的沙盒副本上執行，與使用中的工作台互不干擾，30 項，含「絕不刪除或截短任何
+- **回歸測試**：`python tests/regression.py`，於設定檔的沙盒副本上執行，與使用中的工作台互不干擾，59 項，含「絕不刪除或截短任何
   對話紀錄檔」的不變量檢查。
 
 ## 已知的技術陷阱
@@ -256,6 +261,7 @@ Claude Code 不儲存家目錄的信任狀態：
   launch.pyw         啟動器
   sessions.py        掃描對話紀錄、計算花費、全文搜尋
   claudeschema.py    從 claude 執行檔讀出設定鍵與可選值
+  i18n.py            介面語言與英文字串
   options.py         設定編輯器
   config.py          工作台設定檔存取
   singleton.py       單一實例
