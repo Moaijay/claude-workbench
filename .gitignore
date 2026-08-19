@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+
+# 使用者資料——絕不入版本庫
+config.json
+config.json.*
+*.testbak
+
+# 產生物
+*_preview.png
+scan-cache.json
+schema-cache.json
