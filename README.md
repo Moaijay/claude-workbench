@@ -1,298 +1,416 @@
-# Claude 工作台（Claude Workbench）
+# Claude Workbench
 
-把固定的幾個 Claude Code 對話各自開在獨立的終端機視窗，直接接續上次的進度。
-也可以當成 `claude --resume` 選單的替代品：全機所有對話都在同一個視窗裡，雙擊即開。
+English · [繁體中文](README.zh-TW.md)
 
-> 非官方社群工具，與 Anthropic 無關，亦未獲其背書。
-> Claude 與 Claude Code 為 Anthropic 之商標。
+Opens a fixed set of Claude Code sessions, each in its own terminal window,
+resumed where it left off. It also works as a replacement for the
+`claude --resume` picker: every session on the machine is listed in one
+window, and a double-click opens it.
 
-## 安裝
+> Unofficial community tool, not affiliated with or endorsed by Anthropic.
+> Claude and Claude Code are trademarks of Anthropic.
 
-把整個資料夾複製到任何位置，然後執行：
+## Install
+
+Copy the folder anywhere and run:
 
 ```
 python install.py
 ```
 
-會產生圖示、找出這台電腦實際的桌面位置（處理 OneDrive 之類的重導向），並建立兩個捷徑。
-移除用 `python install.py --uninstall`。
+This generates the icons, finds where the desktop actually lives (handling
+redirections such as OneDrive), and creates two shortcuts.
+`python install.py --uninstall` removes them.
 
-需求：Windows、Python 3.8 以上（只用內建的 tkinter）、已安裝 Claude Code。
-程式碼中沒有硬編的絕對路徑；設定檔換機器時會自動修正 `claude` 執行檔的位置。
+Requirements: Windows, Python 3.8 or later (tkinter only, no third-party
+packages), and Claude Code installed. There are no hardcoded absolute paths;
+the config file re-locates the `claude` executable when moved to another
+machine.
 
-## 兩個捷徑
+## The two shortcuts
 
-| 捷徑 | 作用 |
+| Shortcut | What it does |
 |---|---|
-| **Claude 工作台** | 把啟動清單裡的對話全部開出來，每條一個獨立視窗 |
-| **Claude 工作台 設定** | 挑選要固定開啟哪些對話、排順序、命名、修改設定 |
+| **Claude 工作台** | Opens every session in the launch list, one window each |
+| **Claude 工作台 設定** | Picks which sessions to pin, their order, names, and settings |
 
-兩個都可以釘到工作列。
+Both can be pinned to the taskbar. The shortcut names stay in Chinese
+regardless of interface language, so existing shortcuts keep working.
 
-## 主視窗
+## Main window
 
-左邊是全機所有對話，依資料夾分組、最近使用的排前面，並顯示累計金額與最後使用時間。
-右邊是啟動清單，由上到下即開啟順序。
+The left pane holds every session on the machine, grouped by folder, most
+recently used first, with accumulated cost and last-used time. The right pane
+is the launch list; top to bottom is the order sessions open in.
 
-- **雙擊任何一條（或選取後按 Enter）＝ 直接開啟**，左右兩邊皆同，不必先加入啟動清單。
-  已在啟動清單中的項目會沿用其視窗名稱；雙擊資料夾列只會展開或收合。
-- 「加入 →」把左邊選取的對話加進啟動清單，沿用該對話的標題當視窗名稱。
-- 點清單空白處、視窗空白背景或按 **Esc** 可取消選取；**Ctrl+A** 全選。
-- 兩個清單都支援多選：**Shift＋點擊**選範圍、**Ctrl＋點擊**逐項增減。
-  加入、封存、開啟、移除都會處理全部選取的項目。
-- 選取資料夾列時，動作會套用到其下所有對話。
-- 一次開啟多條會先確認數量；一次移除多條也會確認；重新命名與上下移一次只處理一條。
-- **右鍵選單**：左側有開啟／加入啟動清單／封存／重新命名／移至其他資料夾／複製 resume 指令，右側有開啟／重新命名／上下移／移除。
-- **點「金額」「脈絡」「最後使用」表頭排序**，再點一次反向；排序方式會被記住。
-- **狀態燈**：綠 ●＝開著（閒置）、橘 ●＝Claude 執行中；每 3 秒更新，狀態列顯示執行中數量。
-- **「脈絡」欄**：該對話目前佔脈絡視窗的百分比，接近上限時對話會被壓縮；可於檢視選單或工作台選項關閉。
-- 清單每 30 秒偵測紀錄檔變動並自動更新，選取與捲動位置保留。
-- 掃描、搜尋、開啟、建立對話都在背景執行，介面不凍結。
+- **Double-click a row, or select and press Enter, to open it** — on either
+  side, without adding it to the launch list first. Rows already in the launch
+  list keep their window name; double-clicking a folder row expands or
+  collapses it.
+- "Add →" puts the selected sessions into the launch list, using each
+  session's title as the window name.
+- Click empty list space or the window background, or press **Esc**, to clear
+  the selection; **Ctrl+A** selects all.
+- Both lists support multi-select: **Shift+click** for a range, **Ctrl+click**
+  to add or remove individual rows. Add, archive, open and remove all act on
+  the whole selection.
+- Selecting a folder row applies the action to every session under it.
+- Opening several at once asks for confirmation, as does removing several.
+  Rename and reorder handle one row at a time.
+- **Context menus**: on the left, Open / Add to launch list / Archive /
+  Rename / Move to another folder / Copy resume command. On the right,
+  Open / Rename / Move up / Move down / Remove.
+- **Click the Cost, Context or Last used header to sort**, click again to
+  reverse. The sort is remembered.
+- **Status dot**: green ● is open and idle, orange ● is Claude working. It
+  refreshes every 3 seconds, and the status bar shows how many are running.
+- **Context column**: how much of the context window that session currently
+  occupies. Sessions are compacted near the limit. It can be turned off in the
+  View menu or in Workbench options.
+- The list checks session logs for changes every 30 seconds and updates
+  itself, keeping selection and scroll position.
+- Scanning, searching, opening and creating all run in the background; the
+  interface does not freeze.
 
-| 選單 | 內容 |
+| Menu | Contents |
 |---|---|
-| **檔案** | 新增對話…（Ctrl+N）／從 resume 指令加入…／儲存（Ctrl+S）／結束 |
-| **檢視** | 顯示金額／搜尋對話內容／只看最近 30 天／顯示已封存 |
-| **工具** | Claude Code 設定…（Ctrl+,）／工作台選項…／開機時自動開啟／程式所在資料夾／錯誤記錄檔 |
-| **說明** | 關於 |
+| **File** | New session… (Ctrl+N) / Add from resume command… / Save (Ctrl+S) / Exit |
+| **View** | Show cost / Show context usage / Search session contents / Last 30 days only / Show archived |
+| **Tools** | Claude Code settings… (Ctrl+,) / Workbench options… / Open at startup / Program folder / Error log |
+| **Help** | About |
 
-介面上已有按鈕的操作（加入、重新命名、上下移、移除、重新掃描、立即啟動）不重複放進選單。
+Actions that already have a button (add, rename, reorder, remove, rescan,
+launch now) are not duplicated in the menus.
+
+## Language
+
+`Tools → Workbench options… → Display → 語言 / Language`: `auto`, `zh-TW` or
+`en`. `auto` follows the Windows interface language. The setting is read once
+at startup, so it takes effect the next time the program opens.
+
+The interface was written in Traditional Chinese and the Chinese text is also
+the lookup key for the English strings. Anything without an English entry
+falls back to the Chinese original rather than showing a blank or raising an
+error.
+
+Low-level messages — the untitled-session placeholder, move errors, the
+corrupt-config notice and the crash dialog — are translated as well.
+
+## Archiving
 
-## 封存
+Finished sessions can be folded away. Select them and press "Archive" and they
+leave the list; `View → Show archived` brings them back, greyed out and marked
+"(archived)", and "Unarchive" restores them.
 
-結束的對話可以從清單收起來。選取後按「封存」，清單即不再顯示；
-`檢視 → 顯示已封存` 可再叫出來，以灰字加「（已封存）」標示，選取後按「取消封存」還原。
+**Archiving only records the session id in `config.json`. No session log is
+touched.** It is reversible at any time.
 
-**封存只在 `config.json` 記錄對話 id，不會動到任何對話紀錄檔。** 隨時可逆。
+- Archiving a session that is in the launch list asks whether to remove it
+  from the launch list as well.
+- If a full-text search matches an archived session, the status bar reports
+  "· N archived matches not shown".
+- The total at the bottom covers every session and does not change with
+  archiving.
+- Session ids in the archive list that no longer exist match nothing.
 
-- 封存啟動清單中的項目時，會詢問是否一併移出啟動清單。
-- 全文搜尋若命中已封存的對話，狀態列會顯示「另有 N 條已封存符合」。
-- 底部的累計金額涵蓋所有對話，不隨封存變動。
-- 封存名單中若有已不存在的對話 id，只會配不到，不影響運作。
+Claude Code has no built-in way to archive or hide an individual session. Its
+cleanup tool is `claude project purge [folder]`, which deletes all state for
+that folder (transcripts, tasks, file edit history, and the folder's entry in
+`~/.claude.json`); `--dry-run` previews it and `-i` confirms item by item.
 
-Claude Code 官方沒有封存或隱藏單一對話的功能。官方的清理工具是
-`claude project purge [資料夾]`，刪除該資料夾的全部狀態（逐字稿、任務、檔案編輯歷史、
-`~/.claude.json` 中的設定項），可用 `--dry-run` 預覽、`-i` 逐項確認。
+## New session
+
+`File → New session…`. After choosing a folder:
+
+- **Name left empty**: opens a new window immediately, and Claude names the
+  session from its contents.
+- **Name filled in**: creates the session in the background and fixes the name
+  with `/rename` (a few seconds), then adds it to the launch list.
+
+The folder defaults to the home directory, matching where `claude` starts when
+run from a terminal. Set `"default_cwd"` in `config.json` to change it; if
+that folder does not exist the home directory is used instead.
 
-## 新增對話
-
-`檔案 → 新增對話…`。選資料夾後：
-
-- **名稱留空**：直接開啟新視窗，名稱由 Claude 依對話內容自動產生。
-- **填寫名稱**：背景建立並以 `/rename` 固定名稱（約數秒），加入啟動清單。
-
-資料夾預設為家目錄，與在終端機直接執行 `claude` 的起始位置一致；
-要改成別的，在 `config.json` 設 `"default_cwd"`，該資料夾不存在時會退回家目錄。
-
-建立時會在背景執行一次
-`claude --session-id <新 id> -p "/rename <名稱>"`。
-`/rename` 設定的是 custom title，優先權高於自動產生的標題，因此名稱固定，
-不會隨對話內容被改掉，工具也不需要直接改寫對話紀錄檔。
-
-
-
-家目錄的對話每次開啟都會詢問一次資料夾信任，欄位為家目錄時下方會提示，但不阻擋。
-
-## 重新命名
-
-**F2**（或右鍵選單、右側按鈕）在列上直接就地編輯：Enter 確認、Esc 取消。
-
-- **左側**：改的是對話在 Claude 中的名稱（背景執行 `/rename`），`claude -r` 選單同步可見；
-  該對話在啟動清單中時，視窗名稱一併更新。開啟中的對話改於該視窗輸入 `/rename`。
-- **右側**：改視窗名稱，未開啟的對話自動同步 Claude 端名稱；開啟中則僅改視窗名稱，
-  狀態列註明。
-
-## 移至其他資料夾
-
-右鍵選單的「移至其他資料夾…」把該對話的紀錄檔搬到另一個專案資料夾，
-之後在目標資料夾的 `claude -r` 選單續接。同一磁碟內的更名為原子操作，內容不變。
-開啟中的對話拒絕搬移；已在啟動清單中的項目會同步更新資料夾。
-
-## 金額
-
-左邊清單的「金額」欄顯示每條對話的累計花費，資料夾列為小計，視窗底部為總計。
-`檢視 → 顯示金額` 可關閉。
-
-計算方式：讀取每則回覆記錄的 `usage`（輸入、輸出、快取寫入、快取讀取的 token 數）
-與當時使用的模型，依 Anthropic 公開費率換算。快取讀取為輸入價 ×0.1，
-5 分鐘快取寫入 ×1.25，1 小時快取寫入 ×2。
-
-計入 fast mode（2× 費率，依 `usage.speed` 判斷）與 web search（每千次 $10）。
-未涵蓋 1M 長脈絡溢價，長脈絡對話可能低估。
-
-**這是估算值。** 訂閱制不會實際扣款，此數字用於衡量各對話的投入程度。
-與 `.claude.json` 記錄的官方花費對照，單次執行完成的對話誤差在 ±11% 以內；
-跨多天、多次開關的對話會高於官方數字，因為官方欄位只記錄最後一次執行。
-
-實作注意：同一則回覆在串流過程會被寫入紀錄檔多次（約一半是重複），
-直接加總會多算兩三倍，因此以 message id 去重後取最後一筆。
-
-出現尚無費率資料的模型時，金額列會標示 **⚠ 無費率資料的模型**，而非套用舊費率。
-
-## 全文搜尋
-
-預設關閉，於 `檢視 → 搜尋對話內容` 開啟。
-開啟後搜尋框會直接在所有對話的內文中比對，命中的項目標示「〔命中 N〕」。
-
-輸入兩個字以上才開始搜尋，並延遲 0.35 秒避免逐字掃描。
-採位元組比對、不做 JSON 解析，數百 MB 的紀錄約一秒內完成。
-
-## 設定編輯器
-
-`工具 → Claude Code 設定…`（Ctrl+,）編輯 `~\.claude\settings.json`；
-`工具 → 工作台選項…` 編輯工作台自己的設定。
-
-Claude Code 設定的分頁：模型與思考、多分身（Ultracode）、權限、外觀、
-記憶與紀錄、遠端與通知、其他、其他設定、原始 JSON。
-
-**可選值取自安裝的 `claude.exe`，不是硬編清單。** 設定結構以 zod schema 的形式
-編在執行檔裡，工作台開啟時掃描一次並依檔案大小與時間快取。因此：
-
-- 新增的選項值會自動出現在下拉選單中
-- 此版本不認得的設定會標示 ⚠，避免設定無效的值
-- 安裝版本與清單對照的版本不同時，會在視窗上方標示
-- 未列入分頁但設定檔中有值的鍵集中在「其他設定」分頁，不會消失
-
-沒有 temperature 這一項：現行模型（Opus 5／4.8、Sonnet 5、Fable 5）已不接受
-`temperature` 與 `top_p`，傳入會回傳 400。對應的參數是 **effort**，
-寫入設定檔時可用 `low`／`medium`／`high`／`xhigh`（CLI 的 `--effort` 另有 `max`）。
-
-安全設計：
-
-- 有固定選項的欄位一律為唯讀下拉，無法輸入。
-- 設定檔中原有、但不在選項清單內的值會被加入該下拉並保留。
-- 路徑欄位提供瀏覽與清除按鈕；數字欄位為上下鈕並在儲存時檢查範圍。
-- 「（未設定）」表示不寫入該鍵，沿用 Claude Code 的預設值。
-- 只寫入列出的鍵，其餘內容原封不動。
-- 每次儲存前自動備份（保留最近 10 份）。
-- 「原始 JSON」是唯一可自由輸入的分頁，套用前會驗證格式。
-
-變更於之後開啟的對話生效，已開啟的視窗需重新開啟。
-
-## 開機自動啟動
-
-`工具 → 開機時自動開啟這些對話`。勾選後在登錄檔
-`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 寫入 `ClaudeWorkbench` 值，取消勾選即刪除。
-
-- 只寫入目前使用者的機碼，不需要管理員權限，不會跳 UAC。
-- 不使用「啟動」資料夾捷徑，避免被誤刪或與雲端同步衝突。
-- 每次勾選都會更新為目前的實際路徑，移動安裝資料夾後仍有效。
-- 開機時執行的是啟動器，不是設定視窗。
-
-## 單一實例
-
-設定視窗同時只會存在一個。已在執行時再點捷徑不會開第二個，而是將既有視窗帶到前景
-（最小化時會還原）。啟動器也有相同保護：連續啟動時第二個行程直接結束。
-
-這不只是介面問題。兩個啟動器都會先取得「已開啟的對話」快照再開窗，
-若同時執行會各自判定尚未開啟，導致同一條對話被開成兩個視窗、同時寫入同一個紀錄檔。
-
-實作使用 Windows 具名互斥鎖而非鎖檔，行程結束時由作業系統釋放，不會殘留無效的鎖。
-
-## 執行中偵測與不重複開啟
-
-執行中偵測讀取 Claude Code 的執行期登錄 `~\.claude\sessions\<pid>.json`
-（含 sessionId、資料夾、狀態），逐筆驗證行程仍存活後採用，約 1 毫秒。
-**涵蓋所有互動視窗，包括手動以 `claude -r` 從選單開啟的**；登錄目錄不存在的
-舊版 Claude 退回行程指令列比對。
-
-每 3 秒偵測一次；「重新掃描」會立即偵測。剛從工作台啟動、尚未寫入登錄的
-視窗有 15 秒保護期，登錄出現後即以偵測結果為準。
-
-已開啟的對話不重複開啟；整份清單都已開啟時會提示，避免看起來沒有反應。
-
-## 標示的意思
-
-- **⚠ 找不到** —— 該對話的紀錄檔已不存在。請移除後重新挑選。
-- **⚠ 有更新的接續** —— 同資料夾出現由壓縮交接產生的較新對話。
-  對話達到一定長度會自動壓縮，多數情況下 session ID 不變；換過時請改挑新的那條。
-- **ⓘ 每次會問信任** —— 該對話建在家目錄。
-
-## 為什麼家目錄每次都要按 Trust Folder
-
-Claude Code 不儲存家目錄的信任狀態：
-
-> `{資料夾} is your home directory, and for security home-directory trust is never saved, so running claude here first won't help.`
-
-其他資料夾按一次即記住（存於 `~\.claude.json` 的
-`projects[資料夾].hasTrustDialogAccepted`），且**信任會往下繼承給子資料夾**
-（向上尋找到任一被信任的祖先即放行，邊界為 git repo 的根）。
-家目錄例外，因為一次同意等同預先信任其下所有內容。
-
-## 會記住的介面狀態
-
-視窗大小與位置（含是否最大化）、各欄寬度、「只看最近 30 天」、「顯示金額」、
-「全文搜尋」的開關，於關閉視窗時寫入 `config.json` 的 `ui` 區塊。
-
-兩個例外：搜尋框不記憶；「對話」欄的寬度自動撐滿並保留固定欄所需空間，
-要調整寬度請調「金額」與「最後使用」兩欄。
-
-換螢幕或改解析度後若舊座標落在畫面外，會退回預設大小。
-
-## 可靠性
-
-- **錯誤記錄檔**：未預期的錯誤寫入 `%LOCALAPPDATA%\ClaudeWorkbench\workbench.log`
-  並跳出提示（`工具 → 錯誤記錄檔` 可開啟）。pythonw 下的例外不再無聲消失。
-- **設定檔損壞保護**：`config.json` 讀取失敗時改名保留為 `.corrupt.<時間>`、
-  明確告知並拒絕覆寫，啟動清單不會因此被清空。
-- **備份輪替**：每次儲存前備份至 `%LOCALAPPDATA%\ClaudeWorkbench\backups`，
-  各保留最近 10 份；`settings.json` 亦同。
-- **快取位置**：掃描與 schema 快取存於使用者資料目錄，安裝目錄可唯讀。
-- **回歸測試**：`python tests/regression.py`，於設定檔的沙盒副本上執行，與使用中的工作台互不干擾，30 項，含「絕不刪除或截短任何
-  對話紀錄檔」的不變量檢查。
-
-## 已知的技術陷阱
-
-- 從背景執行緒呼叫 tkinter 的 `after()` 不可靠（主執行緒不在事件迴圈時拋
-  `RuntimeError`）；跨執行緒一律走 queue，由主執行緒定期取出。
-
-## 檔案
+Creating a named session runs
+`claude --session-id <new id> -p "/rename <name>"` once in the background.
+`/rename` sets the custom title, which outranks the automatically generated
+one, so the name stays fixed as the conversation grows and the tool never has
+to rewrite a session log directly.
+
+Sessions in the home directory ask for folder trust on every launch. The
+dialog says so when the folder field is the home directory, but does not block
+it.
+
+## Rename
+
+**F2** — or the context menu, or the button on the right — edits the row in
+place: Enter confirms, Esc cancels.
+
+- **Left pane**: changes the session's name in Claude by running `/rename` in
+  the background, so it is visible in the `claude -r` picker too. If that
+  session is in the launch list, the window name is updated as well. For a
+  session that is currently open, run `/rename` in its own window instead.
+- **Right pane**: changes the window name. For a session that is not open, the
+  name in Claude is synced automatically; for one that is open, only the window
+  name changes and the status bar says so.
+
+## Move to another folder
+
+"Move to another folder…" in the left context menu moves that session's log
+into another project folder, so it can be resumed from the `claude -r` picker
+there. Within one drive this is a rename, an atomic operation that leaves the
+contents unchanged. A session that is currently open is refused; a session in
+the launch list has its folder updated to match.
+
+## Cost
+
+The Cost column shows the accumulated spend per session, folder rows show a
+subtotal, and the bottom of the window shows the total.
+`View → Show cost` turns it off.
+
+How it is calculated: every reply records a `usage` block (input, output,
+cache write and cache read token counts) and the model in use, converted at
+Anthropic's published rates. Cache reads are the input rate ×0.1, 5-minute
+cache writes ×1.25, 1-hour cache writes ×2.
+
+Fast mode (×2 rate, detected from `usage.speed`) and web search ($10 per
+thousand) are included. The 1M long-context premium is not, so long-context
+sessions can be underestimated.
+
+**These are estimates.** A subscription is not billed per session; the number
+is for comparing how much went into each one. Measured against the official
+cost recorded in `.claude.json`, sessions completed in a single run agree
+within ±11%; sessions spread over several days and several runs come out
+higher, because the official field only records the last run.
+
+Implementation note: a single reply is written to the session log several
+times while streaming, and roughly half the records are duplicates. Summing
+them directly overcounts by two to three times, so records are deduplicated by
+message id and the last one is kept.
+
+When a model has no rate data, the cost row is marked **⚠ No pricing data**
+rather than falling back to an old rate.
+
+## Full-text search
+
+Off by default; turn it on with `View → Search session contents`. The search
+box then matches against the body of every session, and matching rows are
+marked "[N hits]".
+
+Searching starts at two characters and is debounced by 0.35 seconds so it does
+not rescan on every keystroke. It compares bytes without parsing JSON, and
+gets through several hundred MB of logs in about a second.
+
+## Settings editor
+
+`Tools → Claude Code settings…` (Ctrl+,) edits `~\.claude\settings.json`;
+`Tools → Workbench options…` edits the workbench's own config.
+
+The Claude Code tabs are: Model and thinking, Subagents (Ultracode),
+Permissions, Appearance, Memory and logs, Remote and notifications, Other,
+Other settings, Raw JSON.
+
+**The available values are read out of the installed `claude.exe`, not from a
+hardcoded list.** The settings shape is embedded in the executable as a zod
+schema; the workbench scans it once on open and caches the result by file size
+and timestamp. As a result:
+
+- new option values show up in the dropdowns on their own
+- settings this version does not recognize are marked ⚠, so an invalid value
+  cannot be set by accident
+- if the installed version differs from the version the list was checked
+  against, the window says so at the top
+- keys that are in the file but not on a tab are collected on the
+  "Other settings" tab instead of disappearing
+
+There is no temperature field: current models (Opus 5 / 4.8, Sonnet 5,
+Fable 5) no longer accept `temperature` or `top_p` and return 400. The
+equivalent knob is **effort**, written to the settings file as `low`,
+`medium`, `high` or `xhigh` (the CLI's `--effort` also takes `max`).
+
+Safety properties:
+
+- Fields with a fixed set of values are read-only dropdowns and cannot be
+  typed into.
+- A value already in the file but absent from the list is added to that
+  dropdown and preserved.
+- Path fields have Browse and Clear buttons; number fields are spinboxes and
+  are range-checked on save.
+- "(not set)" means the key is not written at all, leaving Claude Code's own
+  default in place.
+- Only the listed keys are written; everything else in the file is left as it
+  was.
+- Every save takes a backup first, keeping the last 10.
+- "Raw JSON" is the only free-text tab, and the text is validated before it is
+  applied.
+
+Changes apply to sessions opened afterwards; windows already open need to be
+reopened.
+
+## Start at login
+
+`Tools → Open at startup` writes a `ClaudeWorkbench` value under
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and deletes it when
+unchecked.
+
+- It only touches the current user's key, so no administrator rights and no
+  UAC prompt.
+- It does not use a Startup-folder shortcut, which can be deleted by accident
+  or conflict with cloud sync.
+- Each time it is checked, the value is rewritten with the current path, so it
+  survives moving the install folder.
+- What runs at login is the launcher, not the settings window.
+
+## Single instance
+
+Only one settings window exists at a time. Clicking the shortcut while it is
+running brings the existing window to the front (restoring it if minimized)
+instead of opening a second one. The launcher has the same protection: a
+second process started right after the first exits immediately.
+
+This is not only a cosmetic concern. Each launcher takes a snapshot of which
+sessions are already open before it opens any windows, so two running at once
+would each decide a session was not open yet, and the same session would end
+up in two windows writing to one log.
+
+The lock is a Windows named mutex rather than a lock file, so the operating
+system releases it when the process ends and no stale lock is left behind.
+
+## Running detection and skip-if-open
+
+Detection reads Claude Code's runtime registry at
+`~\.claude\sessions\<pid>.json` (session id, folder, status) and verifies each
+process is still alive before trusting the entry — about 1 ms.
+**It covers every interactive window, including ones opened by hand with
+`claude -r` from the picker.** On older Claude versions without that
+directory, it falls back to comparing process command lines.
+
+Detection runs every 3 seconds, and "Rescan" runs it immediately. A window
+newly started from the workbench that has not written its registry entry yet
+is protected for 15 seconds; once the entry appears, detection takes over.
+
+Sessions already open are not opened again. When the whole list is already
+open, a dialog says so rather than appearing to do nothing.
+
+## What the markers mean
+
+- **⚠ missing** — that session's log no longer exists. Remove the row and pick
+  another.
+- **⚠ newer continuation exists** — the same folder contains a newer session
+  created by a compaction handoff. Long sessions are compacted automatically
+  and usually keep the same session id; when the id did change, pick the newer
+  session instead.
+- **ⓘ trust asked every time** — that session lives in the home directory.
+
+## Why the home directory asks for Trust Folder every time
+
+Claude Code does not store folder trust for the home directory:
+
+> `{folder} is your home directory, and for security home-directory trust is never saved, so running claude here first won't help.`
+
+Other folders are remembered after one confirmation (stored as
+`projects[folder].hasTrustDialogAccepted` in `~\.claude.json`), and **trust is
+inherited by subfolders** — the search walks up until it finds a trusted
+ancestor, bounded by the git repository root. The home directory is the
+exception, because agreeing once there would pre-trust everything under it.
+
+## Remembered UI state
+
+Window size and position (including whether it is maximized), each column
+width, the sort order, and the "Last 30 days only", "Show cost",
+"Show context usage", "Show archived" and full-text-search toggles are written
+to the `ui` block of `config.json` when the window closes.
+
+Two exceptions: the search box is not remembered, and the Session column width
+is computed to fill the remaining space after the fixed columns, so adjust the
+Cost and Last used columns instead.
+
+If the saved coordinates fall off-screen after a monitor or resolution change,
+the default size is used.
+
+## Reliability
+
+- **Error log**: unexpected errors are written to
+  `%LOCALAPPDATA%\ClaudeWorkbench\workbench.log` and raise a dialog
+  (`Tools → Error log` opens it). Exceptions under pythonw no longer vanish
+  silently.
+- **Corrupt config protection**: if `config.json` cannot be read it is renamed
+  to `.corrupt.<timestamp>`, reported, and never overwritten, so the launch
+  list is not silently emptied.
+- **Backup rotation**: every save backs up to
+  `%LOCALAPPDATA%\ClaudeWorkbench\backups`, keeping the last 10 of each;
+  `settings.json` is handled the same way.
+- **Cache location**: the scan cache and schema cache live in the user data
+  directory, so the install folder can be read-only.
+- **Regression tests**: `python tests/regression.py` runs against a sandbox
+  copy of the config file and does not disturb a workbench in use. 59 checks,
+  including the invariant that no session log is ever deleted or truncated.
+
+## Known technical pitfalls
+
+- Calling tkinter's `after()` from a background thread is unreliable — it
+  raises `RuntimeError` when the main thread is not in the event loop.
+  Everything crossing threads goes through a queue that the main thread drains
+  on a timer.
+
+## Files
 
 ```
-（安裝資料夾）
-  settings.pyw       設定視窗
-  launch.pyw         啟動器
-  sessions.py        掃描對話紀錄、計算花費、全文搜尋
-  claudeschema.py    從 claude 執行檔讀出設定鍵與可選值
-  options.py         設定編輯器
-  config.py          工作台設定檔存取
-  singleton.py       單一實例
-  startup.py         開機自動啟動
-  install.py         安裝與移除
-  make_icons.py      產生兩個 .ico
-  appdata.py         資料目錄與備份輪替
-  applog.py          錯誤記錄與例外攔截
-  tests/regression.py 回歸測試
-  config.json        啟動清單、封存名單與介面狀態
+(install folder)
+  settings.pyw       settings window
+  launch.pyw         launcher
+  sessions.py        scans session logs, computes cost, full-text search
+  claudeschema.py    reads setting keys and values out of the claude binary
+  options.py         settings editor
+  i18n.py            interface language and the English strings
+  config.py          workbench config file access
+  singleton.py       single instance
+  startup.py         start at login
+  install.py         install and uninstall
+  make_icons.py      generates the two .ico files
+  appdata.py         data directory and backup rotation
+  applog.py          error log and exception hook
+  tests/regression.py regression tests
+  config.json        launch list, archive list and UI state
 
-（快取、記錄檔、備份在 %LOCALAPPDATA%\ClaudeWorkbench）
+(cache, log and backups live in %LOCALAPPDATA%\ClaudeWorkbench)
 ```
 
-`config.json` 中另有三個不從介面開放的內部參數：
-`stagger_ms`（開窗間隔）、`skip_running`（不重複開啟）、`claude`（執行檔位置）。
-一般不需要調整。
+`config.json` holds three more internal parameters that are not exposed in the
+interface: `stagger_ms` (delay between windows), `skip_running` (do not open a
+session twice) and `claude` (executable location). They rarely need changing.
 
-## 環境變數處理
+## Environment variables
 
-從 Claude Code 內部啟動本工具時，新視窗會繼承 `CLAUDE_CODE_CHILD_SESSION` 等標記，
-使其被視為子行程並顯示 `Transcript saving is off`，該視窗的對話不會被儲存。
-因此 `launch.pyw` 在開窗前會移除 `CLAUDE*` 系列的 session 標記。
+When this tool is started from inside Claude Code, new windows inherit markers
+such as `CLAUDE_CODE_CHILD_SESSION`, which makes them look like child
+processes: they show `Transcript saving is off` and their conversation is
+never saved. `launch.pyw` therefore strips the `CLAUDE*` session markers from
+the environment before opening a window.
 
-## 已知細節
+## Known detail
 
-`wt` 會把命令列中的 `;` 視為分割窗格，不是一般字元。目前的指令不含分號；
-若要改成更複雜的啟動指令，`;` 需寫成 `\;`。
+`wt` treats `;` on its command line as a pane split, not an ordinary
+character. The current command contains no semicolons; a more elaborate launch
+command would need them written as `\;`.
 
-## 內部依賴聲明
+## Internal dependencies
 
-本工具依賴三項 Claude Code 未公開的內部結構，於 2.1.235／Windows 11 驗證：
+This tool relies on three undocumented Claude Code internals, verified against
+2.1.235 on Windows 11:
 
-1. 設定編輯器的可選值掃描 `claude.exe` 內的 zod schema；掃不到時退回內建備援清單。
-2. 執行中偵測讀取 `~\.claude\sessions\<pid>.json` 執行期登錄；目錄不存在時退回行程指令列比對。
-3. 金額費率為手工維護的表（2026-08 公開定價）；未知模型標示 ⚠ 而非套用舊費率，既有模型改價不會自動反映。
+1. The settings editor scans the zod schema inside `claude.exe` for available
+   values; when the scan finds nothing it falls back to a built-in list.
+2. Running detection reads the `~\.claude\sessions\<pid>.json` runtime
+   registry; when that directory does not exist it falls back to comparing
+   process command lines.
+3. Cost rates are a hand-maintained table (published pricing, 2026-08).
+   Unknown models are marked ⚠ instead of being priced at an old rate, and a
+   price change to an existing model is not picked up automatically.
 
-三者皆有退化路徑，Claude Code 改版時功能會降級而非故障；不保證跟上其每次更新。
+All three degrade rather than break when Claude Code changes. Keeping up with
+every Claude Code release is not promised.
 
-## 授權
+## License
 
-MIT，見 [LICENSE](LICENSE)。
+MIT, see [LICENSE](LICENSE).

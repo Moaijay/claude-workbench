@@ -11,6 +11,7 @@ import uuid
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import applog  # noqa: E402
 import config  # noqa: E402
+from i18n import tr  # noqa: E402
 import sessions  # noqa: E402
 import singleton  # noqa: E402
 
@@ -28,7 +29,7 @@ CHILD_MARKERS = (
 )
 
 
-def alert(msg, title="Claude 工作台"):
+def alert(msg, title=None):
     try:
         import tkinter as tk
         from tkinter import messagebox
@@ -41,7 +42,7 @@ def alert(msg, title="Claude 工作台"):
                 root.iconbitmap(default=ico)
             except tk.TclError:
                 pass
-        messagebox.showwarning(title, msg)
+        messagebox.showwarning(title or tr("Claude 工作台"), msg)
         root.destroy()
     except Exception:
         print(msg)
@@ -154,14 +155,14 @@ def create_session(cfg, cwd, name):
     透過 /rename 命名，名稱不會被自動產生的標題取代，也不需直接改寫對話紀錄檔。
     """
     if not os.path.isdir(cwd):
-        return None, "資料夾不存在：%s" % cwd
+        return None, tr("資料夾不存在：%s") % cwd
     sid = str(uuid.uuid4())
     ok, out = _run_claude(cfg, cwd, ["--session-id", sid, "-p",
                                      "/rename " + name])
     if not ok:
-        return None, out or "claude 回報失敗"
+        return None, out or tr("claude 回報失敗")
     if not sessions.find_file(sid):
-        return None, "指令跑完了，但找不到新對話的紀錄檔"
+        return None, tr("指令跑完了，但找不到新對話的紀錄檔")
     return sid, None
 
 
@@ -169,7 +170,7 @@ def rename_session(cfg, item, name):
     """一併修改該對話在 Claude 中的名稱；工作台的視窗名稱另外儲存。"""
     ok, out = _run_claude(cfg, item["cwd"],
                           ["--resume", item["session"], "-p", "/rename " + name])
-    return (True, None) if ok else (False, out or "claude 回報失敗")
+    return (True, None) if ok else (False, out or tr("claude 回報失敗"))
 
 
 def claude_args(cfg, item):
@@ -228,7 +229,7 @@ def main():
         return
     items = [i for i in cfg.get("items", []) if i.get("session") and i.get("cwd")]
     if not items:
-        alert("啟動清單是空的\n\n請於「Claude 工作台 設定」中挑選對話。")
+        alert(tr("啟動清單是空的\n\n請於「Claude 工作台 設定」中挑選對話。"))
         return
 
     # 已開啟的不重複開啟：同一條對話的兩個視窗會互相覆寫紀錄檔
@@ -241,29 +242,29 @@ def main():
             already.append(item["name"])
             continue
         if not os.path.isdir(item["cwd"]):
-            missing.append("%s　資料夾不存在" % item["name"])
+            missing.append(tr("%s　資料夾不存在") % item["name"])
             continue
         if not session_file(item):
-            missing.append("%s　找不到對話紀錄" % item["name"])
+            missing.append(tr("%s　找不到對話紀錄") % item["name"])
             continue
         try:
             launch(cfg, item)
             opened += 1
         except Exception as e:
-            missing.append("%s　開啟失敗：%s" % (item["name"], e))
+            missing.append(tr("%s　開啟失敗：%s") % (item["name"], e))
         if n < len(items) - 1:
             time.sleep(delay)
 
     if missing:
         note = ""
         if already:
-            note = "\n\n已開啟而略過：%s" % "、".join(already)
-        alert("已開啟 %d 個；下列未開啟：\n\n%s%s"
+            note = tr("\n\n已開啟而略過：%s") % tr("、").join(already)
+        alert(tr("已開啟 %d 個；下列未開啟：\n\n%s%s")
               % (opened, "\n".join(missing), note))
     elif already and opened == 0:
         # 全部都已開啟時仍給出回饋，避免看起來沒有反應
-        alert("清單中的對話均已開啟：\n\n%s" % "、".join(already),
-              title="Claude 工作台")
+        alert(tr("清單中的對話均已開啟：\n\n%s") % tr("、").join(already),
+              title=tr("Claude 工作台"))
 
 
 if __name__ == "__main__":

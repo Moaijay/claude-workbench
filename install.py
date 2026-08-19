@@ -13,12 +13,14 @@ import subprocess
 import sys
 import winreg
 
+from i18n import tr
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SHORTCUTS = [
     ("Claude 工作台", "launch.pyw", "launcher.ico",
-     "開啟所有固定的 Claude Code 對話"),
+     tr("開啟所有固定的 Claude Code 對話")),
     ("Claude 工作台 設定", "settings.pyw", "settings.ico",
-     "挑選每次要自動開啟哪些 Claude Code 對話"),
+     tr("挑選每次要自動開啟哪些 Claude Code 對話")),
 ]
 
 
@@ -70,15 +72,15 @@ def ensure_icons():
     missing = [i for _, _, i, _ in SHORTCUTS
                if not os.path.exists(os.path.join(HERE, i))]
     if not missing:
-        return True, "圖示已存在"
+        return True, tr("圖示已存在")
     try:
         import make_icons  # noqa: F401
         for maker, name in ((make_icons.launcher_icon, "launcher.ico"),
                             (make_icons.settings_icon, "settings.ico")):
             make_icons.save(maker(), name)
-        return True, "已產生圖示"
+        return True, tr("已產生圖示")
     except Exception as e:
-        return False, "產生圖示失敗（會用預設圖示）：%s" % e
+        return False, tr("產生圖示失敗（會用預設圖示）：%s") % e
 
 
 def check_claude():
@@ -91,17 +93,18 @@ def check_claude():
 
 
 def install():
-    print("安裝位置：%s" % HERE)
+    print(tr("安裝位置：%s") % HERE)
     ok, msg = ensure_icons()
-    print("  圖示：%s" % msg)
+    print(tr("  圖示：%s") % msg)
 
     found, claude = check_claude()
-    print("  Claude Code：%s" % (claude if found else "找不到！請先安裝 Claude Code"))
+    print(tr("  Claude Code：%s")
+          % (claude if found else tr("找不到！請先安裝 Claude Code")))
 
     desk = desktop_dir()
-    print("  桌面：%s" % desk)
+    print(tr("  桌面：%s") % desk)
     py = pythonw()
-    print("  直譯器：%s" % py)
+    print(tr("  直譯器：%s") % py)
 
     for name, script, icon, desc in SHORTCUTS:
         lnk = os.path.join(desk, name + ".lnk")
@@ -112,7 +115,7 @@ def install():
         if err:
             print("       %s" % err)
 
-    print("\n完成。點桌面的「Claude 工作台 設定」開始挑要固定開啟的對話。")
+    print(tr("\n完成。點桌面的「Claude 工作台 設定」開始挑要固定開啟的對話。"))
 
 
 def uninstall():
@@ -121,13 +124,13 @@ def uninstall():
         lnk = os.path.join(desk, name + ".lnk")
         if os.path.exists(lnk):
             os.remove(lnk)
-            print("  已刪除 %s" % lnk)
+            print(tr("  已刪除 %s") % lnk)
     sys.path.insert(0, HERE)
     import startup
     if startup.is_enabled():
         startup.set_enabled(False)
-        print("  已關閉開機自動啟動")
-    print("\n捷徑已移除。程式檔案與 config.json 留著，直接刪掉這個資料夾就完全清乾淨。")
+        print(tr("  已關閉開機自動啟動"))
+    print(tr("\n捷徑已移除。程式檔案與 config.json 留著，直接刪掉這個資料夾就完全清乾淨。"))
 
 
 if __name__ == "__main__":

@@ -16,6 +16,8 @@ LOAD_ERROR = ""
 DEFAULT = {
     "claude": "",
     "shell": "powershell",   # 或 "cmd"
+    # 介面語言：auto 跟隨 Windows 介面語言，或指定 zh-TW／en；重啟生效
+    "language": "auto",
     "stagger_ms": 700,
     "keep_open": True,
     "skip_running": True,    # 已開啟的對話不重複開啟
@@ -69,7 +71,8 @@ def load():
                 os.replace(PATH, quarantine)
             except OSError:
                 quarantine = PATH
-            LOAD_ERROR = ("設定檔損壞（%s）\n已保留於 %s\n目前載入預設值"
+            from i18n import tr
+            LOAD_ERROR = (tr("設定檔損壞（%s）\n已保留於 %s\n目前載入預設值")
                           % (e, quarantine))
             try:
                 import applog

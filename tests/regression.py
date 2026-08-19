@@ -19,6 +19,12 @@ sys.path.insert(0, HERE)
 sys.stdout.reconfigure(encoding="utf-8")
 
 import appdata      # noqa: E402
+import i18n         # noqa: E402
+
+# 介面語言在各模組載入時就決定了，因此必須早於 options 等模組固定下來，
+# 中文斷言才不會隨執行這支測試的機器語言而改變。
+i18n.set_language("zh-TW")
+
 import config       # noqa: E402
 import launch       # noqa: E402
 import options      # noqa: E402
@@ -471,6 +477,34 @@ def main():
             root.destroy()
         finally:
             shutil.move(cs_bak, options.CLAUDE_SETTINGS)
+
+        # ---------- 英文介面 ----------
+        print("== 英文介面 ==")
+        check("語言選項在工作台選項中",
+              any(k == "language" for _, rows in options.WORKBENCH_SPEC
+                  for k, *_ in rows))
+        try:
+            i18n.set_language("en")
+            check("英文查得到翻譯",
+                  i18n.tr("已在啟動清單中") == "Already in the launch list",
+                  i18n.tr("已在啟動清單中"))
+            check("查不到就回傳中文原文",
+                  i18n.tr("這句沒有翻譯") == "這句沒有翻譯")
+            check("同字不同義分得開",
+                  i18n.tr("開啟", "bool") == "On" and i18n.tr("開啟") == "Open",
+                  (i18n.tr("開啟", "bool"), i18n.tr("開啟")))
+            root = tk.Tk()
+            root.withdraw()
+            en_app = st.App(root)
+            root.update()
+            head = str(en_app.tree.heading("cost")["text"])
+            check("英文介面的標題與按鈕為英文",
+                  en_app.arch_btn.cget("text") == "Archive" and
+                  head.startswith("Cost"),
+                  (en_app.arch_btn.cget("text"), head))
+            root.destroy()
+        finally:
+            i18n.set_language("zh-TW")
     finally:
         shutil.rmtree(sandbox_dir, ignore_errors=True)
 
