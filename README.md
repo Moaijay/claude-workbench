@@ -12,48 +12,23 @@ window, and a double-click opens it.
 
 ## Install
 
-1. Get the folder — either
+```
+git clone https://github.com/Moaijay/claude-workbench
+cd claude-workbench
+python install.py
+```
 
-   ```
-   git clone https://github.com/Moaijay/claude-workbench
-   ```
+Or download the ZIP and run `install.py` from the extracted folder (a full
+path from anywhere works too — the script resolves everything relative to
+its own location).
 
-   or Code → Download ZIP on GitHub, extracted anywhere
-   (`C:\Tools\claude-workbench` is a reasonable home).
+It generates the icons and creates two desktop shortcuts, handling
+OneDrive-redirected desktops. `python install.py --uninstall` removes the
+shortcuts and the autostart entry; deleting the folder removes the rest.
 
-2. Open a terminal **in that folder** (Explorer: right-click inside it →
-   *Open in Terminal*) and run:
-
-   ```
-   python install.py
-   ```
-
-   `install.py` is one of the files extracted in step 1; the command means
-   "run this file with Python". Finding the desktop (OneDrive redirection
-   included), generating icons and creating shortcuts all happens inside the
-   file. It locates everything relative to its own location, so a full path
-   from any directory works just as well:
-   `python C:\Tools\claude-workbench\install.py`.
-
-3. Two `[OK]` lines and a completion message mean the install is done and
-   the two shortcuts are on the desktop (extracting alone puts nothing
-   there). Open **Claude 工作台 設定** first
-   and pin the sessions to reopen.
-
-`python install.py --uninstall` removes the shortcuts and the autostart
-entry; deleting the folder afterwards removes everything else.
-
-Notes:
-
-- Requirements: Windows, Python 3.8 or later (tkinter only, no third-party
-  packages), Claude Code installed.
-- If typing `python` opens the Microsoft Store, Python is not installed yet —
-  install it from python.org or the Store, then run the command again
-  (`py install.py` also works).
-- Do not double-click `install.py`; the console closes before the output can
-  be read.
-- The `claude` executable is found via PATH or `~\.local\bin`. Installed
-  somewhere else, it can be set in `config.json` (`"claude"`).
+Requirements: Windows, Python 3.8+ (stdlib tkinter only), Claude Code.
+The `claude` executable is found via PATH or `~\.local\bin`; anywhere else,
+set `"claude"` in `config.json`.
 
 ## Updating
 

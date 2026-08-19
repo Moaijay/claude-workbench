@@ -10,41 +10,22 @@
 
 ## 安裝
 
-1. 取得資料夾 —— 二擇一：
+```
+git clone https://github.com/Moaijay/claude-workbench
+cd claude-workbench
+python install.py
+```
 
-   ```
-   git clone https://github.com/Moaijay/claude-workbench
-   ```
+或下載 ZIP，在解壓出的資料夾內執行 `install.py`（在任何目錄用完整路徑
+執行也可以——指令碼一律以自己檔案的位置定位）。
 
-   或在 GitHub 按 Code → Download ZIP，解壓到任何位置
-   （例如 `C:\Tools\claude-workbench`）。
+它會產生圖示並在桌面建立兩個捷徑，OneDrive 重導向的桌面也能正確找到。
+`python install.py --uninstall` 移除捷徑與開機自啟，之後刪掉資料夾即
+完全清除。
 
-2. **在那個資料夾裡**開終端機（檔案總管：資料夾內空白處按右鍵 →
-   「在終端機中開啟」），執行：
-
-   ```
-   python install.py
-   ```
-
-   `install.py` 是第 1 步解壓出來的檔案之一；這行指令的意思是「用 Python
-   執行這個檔案」。找桌面（含 OneDrive 重導向）、產生圖示、建捷徑的邏輯都在
-   檔案內。指令碼一律以自己檔案的位置定位，因此在任何目錄用完整路徑執行也
-   可以：`python C:\Tools\claude-workbench\install.py`。
-
-3. 看到兩行 `[OK]` 與「完成」訊息即安裝完成，桌面出現兩個捷徑
-   （解壓本身不會在桌面產生任何東西）。先開 **Claude 工作台 設定** 挑要固定開啟的對話。
-
-`python install.py --uninstall` 移除捷徑與開機自啟；之後刪掉資料夾即完全清除。
-
-注意事項：
-
-- 需求：Windows、Python 3.8 以上（只用內建 tkinter，無第三方套件）、已安裝
-  Claude Code。
-- 打 `python` 卻跳出 Microsoft Store ＝ 還沒裝 Python —— 從 python.org 或
-  Store 裝好後重跑（`py install.py` 也可以）。
-- 不要用滑鼠雙擊 `install.py`，主控台會在看到輸出前就關閉。
-- `claude` 執行檔從 PATH 或 `~\.local\bin` 尋找；裝在別處時在
-  `config.json` 的 `"claude"` 指定。
+需求：Windows、Python 3.8 以上（只用內建 tkinter）、已安裝 Claude Code。
+`claude` 執行檔從 PATH 或 `~\.local\bin` 尋找；裝在別處時在
+`config.json` 的 `"claude"` 指定。
 
 ## 更新
 
