@@ -77,6 +77,13 @@ EN = {
     "　（已封存）": "  (archived)",
     "  ⚠ 找不到": "  ⚠ missing",
     "  ⚠ 有更新的接續": "  ⚠ newer continuation exists",
+    "有更新的接續": "Newer continuation",
+    "「%s」已交接到較新的對話。\n\n改開較新的那條？":
+        "\"%s\" was handed off to a newer session.\n\n"
+        "Open the newer one instead?",
+    "啟動清單已改指到接續": "Launch list now points to the continuation",
+    "開啟進行中，稍候": "Launch in progress",
+    "掃描失敗，沿用上次結果（%s）": "Scan failed; using last result (%s)",
     "  ⓘ 每次會問信任": "  ⓘ trust asked every time",
     "(不明)": "(unknown)",
     "未知": "unknown",

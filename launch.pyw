@@ -56,8 +56,12 @@ SESSIONS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "sessions")
 STILL_ACTIVE = 259
 
 
-def _pid_alive(pid):
-    """行程是否仍在執行。登錄檔可能因為當機而殘留，逐筆驗證。"""
+def _pid_alive(pid, proc_start=None):
+    """行程是否仍在執行。登錄檔可能因為當機而殘留，逐筆驗證。
+
+    proc_start 是登錄檔記下的行程建立時間（FILETIME）；PID 會被系統
+    重用，建立時間也對得上才視為同一個行程。
+    """
     import ctypes
     k32 = ctypes.windll.kernel32
     h = k32.OpenProcess(0x1000, False, int(pid))   # QUERY_LIMITED_INFORMATION
@@ -65,9 +69,20 @@ def _pid_alive(pid):
         return False
     try:
         code = ctypes.c_ulong()
-        if k32.GetExitCodeProcess(h, ctypes.byref(code)):
-            return code.value == STILL_ACTIVE
-        return False
+        if not (k32.GetExitCodeProcess(h, ctypes.byref(code))
+                and code.value == STILL_ACTIVE):
+            return False
+        try:
+            want = int(proc_start)
+        except (TypeError, ValueError):
+            return True
+        times = (ctypes.c_ulonglong * 4)()
+        if not k32.GetProcessTimes(h, ctypes.byref(times, 0),
+                                   ctypes.byref(times, 8),
+                                   ctypes.byref(times, 16),
+                                   ctypes.byref(times, 24)):
+            return True
+        return abs(times[0] - want) < 10 * 10 ** 7   # 容差 10 秒
     finally:
         k32.CloseHandle(h)
 
@@ -90,7 +105,8 @@ def running_status():
             except Exception:
                 continue
             sid, pid = o.get("sessionId"), o.get("pid")
-            if sid and isinstance(pid, int) and _pid_alive(pid):
+            if sid and isinstance(pid, int) \
+                    and _pid_alive(pid, o.get("procStart")):
                 out[sid.lower()] = o.get("status") or "idle"
         return out
     return {sid: "idle" for sid in _running_by_cmdline()}

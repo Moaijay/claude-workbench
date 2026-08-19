@@ -84,6 +84,9 @@ def main():
     messagebox.showinfo = lambda *a, **k: None
     messagebox.showwarning = lambda *a, **k: None
     opened = []
+    # 執行期偵測的測試要用原函式；替身只給介面測試用
+    real_running_sessions = launch.running_sessions
+    real_running_status = launch.running_status
     launch.launch = lambda cfg, item: opened.append(item["name"])
     launch.running_sessions = lambda: set()
     launch.running_status = lambda: {}
@@ -130,25 +133,46 @@ def main():
         check("接續警告：被交接的鏈仍會警告",
               sessions.newer_handoff(fake, "X", 480.0) is not None)
 
-        # 執行中偵測：官方執行期登錄
+        # 執行中偵測：官方執行期登錄（用替換前的原函式測）
         import launch as launch_real
         if os.path.isdir(launch_real.SESSIONS_DIR):
             t0 = time.time()
-            live = launch_real.running_sessions()
+            live = real_running_sessions()
             dt = (time.time() - t0) * 1000
             check("執行中偵測走執行期登錄", isinstance(live, set), type(live))
             check("執行中偵測夠快（<100ms）", dt < 100, "%.1f ms" % dt)
             stale = os.path.join(launch_real.SESSIONS_DIR, "4999999.json")
+            reuse = os.path.join(launch_real.SESSIONS_DIR, "4999998.json")
             try:
                 with open(stale, "w", encoding="utf-8") as fh:
                     json.dump({"pid": 4999999,
                                "sessionId": "dead0000-dead-dead-dead-deaddeaddead"},
                               fh)
-                live2 = launch_real.running_sessions()
+                # PID 重用：活的 PID（本測試行程）配上錯的建立時間
+                with open(reuse, "w", encoding="utf-8") as fh:
+                    json.dump({"pid": os.getpid(), "procStart": "1",
+                               "sessionId": "reus0000-dead-dead-dead-deaddeaddead"},
+                              fh)
+                live2 = real_running_sessions()
                 check("殘留登錄（行程已死）會被排除",
                       "dead0000-dead-dead-dead-deaddeaddead" not in live2)
+                check("殘留登錄（PID 已被重用）會被排除",
+                      "reus0000-dead-dead-dead-deaddeaddead" not in live2)
             finally:
                 os.remove(stale)
+                os.remove(reuse)
+
+            import ctypes
+            k32 = ctypes.windll.kernel32
+            h = k32.OpenProcess(0x1000, False, os.getpid())
+            ft = (ctypes.c_ulonglong * 4)()
+            k32.GetProcessTimes(h, ctypes.byref(ft, 0), ctypes.byref(ft, 8),
+                                ctypes.byref(ft, 16), ctypes.byref(ft, 24))
+            k32.CloseHandle(h)
+            check("PID＋建立時間相符＝存活",
+                  launch_real._pid_alive(os.getpid(), str(ft[0])))
+            check("沒有建立時間時僅驗 PID",
+                  launch_real._pid_alive(os.getpid()))
 
         # 脈絡使用率
         tmpdir2 = os.path.join(sessions.PROJECTS, "zz-test-ctx")
@@ -201,8 +225,8 @@ def main():
                     os.rmdir(d)
             os.rmdir(target)
 
-        # 執行中狀態為字典
-        st_map = launch.running_status() if hasattr(launch, "running_status")             else None
+        # 執行中狀態為字典（用替換前的原函式測）
+        st_map = real_running_status()
         check("running_status 回傳字典", isinstance(st_map, dict),
               type(st_map))
         if st_map:
@@ -222,12 +246,48 @@ def main():
         check("檢查更新的翻譯齊全",
               all(k in _i.EN for k in ("檢查更新", "檢查更新失敗",
                                        "已是最新版本（v%s）")))
+        check("交接與掃描字串的翻譯齊全",
+              all(k in _i.EN for k in
+                  ("有更新的接續", "開啟進行中，稍候",
+                   "啟動清單已改指到接續", "掃描失敗，沿用上次結果（%s）",
+                   "「%s」已交接到較新的對話。\n\n改開較新的那條？")))
 
         # 快取位置
         check("掃描快取在資料目錄",
               sessions.CACHE.startswith(appdata.data_dir()))
         check("安裝目錄沒有快取檔",
               not os.path.exists(os.path.join(HERE, "scan-cache.json")))
+
+        # ---------- schema 抽取 ----------
+        import claudeschema
+        sch = claudeschema.load()
+        check("schema 抽取健全",
+              bool(sch.get("ok")) and
+              len(sch.get("keys") or {}) >= claudeschema.MIN_KEYS,
+              "%d 鍵" % len(sch.get("keys") or {}))
+        check("哨兵鍵在",
+              sum(1 for k in claudeschema.SENTINELS
+                  if k in (sch.get("keys") or {})) >= 2)
+        check("_sane 擋空結果", not claudeschema._sane({}))
+        old_cache, old_scan = claudeschema.CACHE, claudeschema._scan
+        try:
+            claudeschema.CACHE = os.path.join(sandbox_dir, "schema-test.json")
+            good = {"sig": "old", "version": "9.9.9",
+                    "keys": {"model": "d", "effortLevel": "d"},
+                    "enums": {}, "ok": True}
+            with open(claudeschema.CACHE, "w", encoding="utf-8") as fh:
+                json.dump(good, fh)
+            claudeschema._scan = lambda p: ({}, {})
+            blob = claudeschema.load(force=True)
+            check("抽取失敗回落上次結果",
+                  bool(blob.get("stale")) and
+                  blob.get("keys", {}).get("model") == "d")
+            with open(claudeschema.CACHE, encoding="utf-8") as fh:
+                after = json.load(fh)
+            check("抽取失敗不覆寫快取",
+                  after.get("ok") is True and "stale" not in after)
+        finally:
+            claudeschema.CACHE, claudeschema._scan = old_cache, old_scan
 
         # ---------- 設定檔保護 ----------
         print("== 設定檔保護 ==")
@@ -263,6 +323,25 @@ def main():
         check("多選模式", str(app.tree.cget("selectmode")) == "extended")
         check("右鍵選單存在",
               hasattr(app, "tree_menu") and hasattr(app, "picked_menu"))
+
+        # 交接改指：鏈上追到最新
+        real_app_sessions = app.sessions
+        app.sessions = [
+            {"id": "a1", "cwd": "X", "mtime": 100.0, "ctime": 50.0,
+             "handoff": False},
+            {"id": "h1", "cwd": "X", "mtime": 500.0, "ctime": 150.0,
+             "handoff": True},
+            {"id": "h2", "cwd": "X", "mtime": 900.0, "ctime": 550.0,
+             "handoff": True},
+        ]
+        try:
+            ho = app._handoff_target("a1")
+            check("交接追到鏈上最新", bool(ho) and ho["id"] == "h2",
+                  ho and ho["id"])
+            check("沒被交接的不改指", app._handoff_target("h2") is None)
+            check("不明對話不改指", app._handoff_target("zzz") is None)
+        finally:
+            app.sessions = real_app_sessions
         check("四條測試對話已封存", len(app.archived) >= 4,
               str(len(app.archived)))
 

@@ -30,6 +30,16 @@ SCHEMA_RE = re.compile(
 ENUM_RE = re.compile(
     rb"([A-Za-z][A-Za-z0-9]{2,40})\s*:\s*[A-Za-z0-9_$]{1,8}\(\s*\[([^\]]{1,300})\]")
 
+# 抽取結果的健全檢查：一定存在的鍵抓不到、或總數過低＝打包格式變了
+# 導致抽取失敗，不是這個版本真的沒有這些設定。
+SENTINELS = ("model", "effortLevel", "env", "theme")
+MIN_KEYS = 100
+
+
+def _sane(keys):
+    return (len(keys) >= MIN_KEYS
+            and sum(1 for k in SENTINELS if k in keys) >= 2)
+
 
 def claude_path(cfg=None):
     if cfg and cfg.get("claude"):
@@ -75,32 +85,51 @@ def _scan(path):
 
 
 def load(claude=None, force=False):
-    """回傳 {"version", "keys": {鍵: 說明}, "enums": {鍵: [值]}}，結果會快取。"""
+    """回傳 {"version", "keys": {鍵: 說明}, "enums": {鍵: [值]}}，結果會快取。
+
+    抽取結果沒通過健全檢查時不覆寫快取，改回傳上一次成功的結果並標
+    "stale"；沒有可用的舊結果才回空。
+    """
     exe = claude or claude_path()
     try:
         st = os.stat(exe)
         sig = "%s|%d|%d" % (exe, st.st_size, int(st.st_mtime))
     except OSError:
-        return {"version": "", "keys": {}, "enums": {}, "ok": False}
+        sig = None
 
-    if not force and os.path.exists(CACHE):
+    old = None
+    if os.path.exists(CACHE):
         try:
             with open(CACHE, encoding="utf-8") as fh:
-                blob = json.load(fh)
-            if blob.get("sig") == sig:
-                return blob
+                old = json.load(fh)
         except Exception:
-            pass
+            old = None
+    if old is not None and not (old.get("ok") and old.get("keys")):
+        old = None
+    if not force and sig and old and old.get("sig") == sig:
+        return old
 
-    keys, enums = _scan(exe)
-    blob = {"sig": sig, "version": installed_version(exe),
-            "keys": keys, "enums": enums, "ok": bool(keys)}
-    try:
-        with open(CACHE, "w", encoding="utf-8") as fh:
-            json.dump(blob, fh, ensure_ascii=False)
-    except OSError:
-        pass
-    return blob
+    keys, enums = {}, {}
+    if sig:
+        try:
+            keys, enums = _scan(exe)
+        except Exception:
+            keys, enums = {}, {}
+
+    if _sane(keys):
+        blob = {"sig": sig, "version": installed_version(exe),
+                "keys": keys, "enums": enums, "ok": True}
+        try:
+            with open(CACHE, "w", encoding="utf-8") as fh:
+                json.dump(blob, fh, ensure_ascii=False)
+        except OSError:
+            pass
+        return blob
+    if old:
+        stale = dict(old)
+        stale["stale"] = True
+        return stale
+    return {"version": "", "keys": {}, "enums": {}, "ok": False}
 
 
 def drift(spec_keys, schema=None):

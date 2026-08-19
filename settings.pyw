@@ -1031,15 +1031,53 @@ class App(ttk.Frame):
             return None
         return {"name": sessions.label(s)[:20], "cwd": s["cwd"], "session": sid}
 
+    def _handoff_target(self, sid):
+        """這條對話被壓縮交接過時，回傳鏈上最新的那條；否則回 None。"""
+        info = sessions.by_id(self.sessions).get(sid)
+        if not info:
+            return None
+        ho = sessions.newer_handoff(self.sessions, info["cwd"], info["mtime"])
+        if not ho:
+            return None
+        seen = {info["id"], ho["id"]}
+        while True:
+            nxt = sessions.newer_handoff(self.sessions, ho["cwd"], ho["mtime"])
+            if not nxt or nxt["id"] in seen:
+                return ho
+            seen.add(nxt["id"])
+            ho = nxt
+
     def open_many(self, targets, confirm=True):
         """驗證與確認在主執行緒；實際開窗與間隔在背景執行緒。"""
         targets = [t for t in targets if t]
-        if not targets or self._launching:
+        if not targets:
+            return
+        if self._launching:
+            self.status.configure(text=tr("開啟進行中，稍候"))
             return
         if confirm and len(targets) > 1 and not messagebox.askyesno(
                 tr("開啟"), tr("開啟 %d 條對話？") % len(targets)):
             return
         cfg = config.load()
+        repointed = False
+        for t in targets:
+            ho = self._handoff_target(t["session"])
+            if not ho or not messagebox.askyesno(
+                    tr("有更新的接續"),
+                    tr("「%s」已交接到較新的對話。\n\n改開較新的那條？")
+                    % t["name"]):
+                continue
+            old_id = t["session"]
+            for it in self.items:
+                if it.get("session") == old_id:
+                    it["session"] = ho["id"]
+                    repointed = True
+            t["session"] = ho["id"]
+        if repointed:
+            cfg["items"] = self.items
+            config.save(cfg)
+            self.fill_picked()
+            self.status.configure(text=tr("啟動清單已改指到接續"))
         quiet = len(targets) > 1
         todo, skipped = [], []
         for t in targets:

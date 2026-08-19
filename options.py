@@ -247,13 +247,16 @@ class OptionsDialog(tk.Toplevel):
         if not known:
             return ""
         got = self.schema.get("version") or ""
+        bits = []
+        if self.schema.get("stale"):
+            bits.append(tr("掃描失敗，沿用上次結果（%s）") % (got or "?"))
         gone = [k for _, rows in self.spec for k, *_ in rows
                 if k.split(".")[0] not in known]
-        if not gone:
-            return ""
-        bits = [tr("此版本不認得（已標示 ⚠）：%s") % tr("、").join(gone)]
-        if got and got != VERIFIED_FOR:
-            bits.append(tr("安裝版本 %s　·　清單對照版本 %s") % (got, VERIFIED_FOR))
+        if gone:
+            bits.append(tr("此版本不認得（已標示 ⚠）：%s") % tr("、").join(gone))
+            if got and got != VERIFIED_FOR:
+                bits.append(tr("安裝版本 %s　·　清單對照版本 %s")
+                            % (got, VERIFIED_FOR))
         return tr("　·　").join(bits)
 
     # ------------------------------------------------------------ 列

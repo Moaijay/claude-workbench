@@ -357,7 +357,7 @@ the default size is used.
 - **Cache location**: the scan cache and schema cache live in the user data
   directory, so the install folder can be read-only.
 - **Regression tests**: `python tests/regression.py` runs against a sandbox
-  copy of the config file and does not disturb a workbench in use. 59 checks,
+  copy of the config file and does not disturb a workbench in use. 75 checks,
   including the invariant that no session log is ever deleted or truncated.
 
 ## Known technical pitfalls
