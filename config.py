@@ -16,6 +16,8 @@ LOAD_ERROR = ""
 DEFAULT = {
     "claude": "",
     "shell": "powershell",   # 或 "cmd"
+    # 介面語言：auto 跟隨 Windows 介面語言，或指定 zh-TW／en；重啟生效
+    "language": "auto",
     "stagger_ms": 700,
     "keep_open": True,
     "skip_running": True,    # 已開啟的對話不重複開啟

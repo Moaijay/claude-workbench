@@ -14,13 +14,14 @@ from tkinter import font as tkfont
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import applog      # noqa: E402
 import config      # noqa: E402
+from i18n import tr  # noqa: E402
 import launch      # noqa: E402
 import options     # noqa: E402
 import sessions    # noqa: E402
 import singleton   # noqa: E402
 import startup     # noqa: E402
 
-WINDOW_TITLE = "Claude 工作台 — 設定"
+WINDOW_TITLE = tr("Claude 工作台 — 設定")
 
 # 解析 Claude 結束時印出的那一行：cd '資料夾' ; claude --resume <id>
 QUOTE = "[\x27\x22]?"
@@ -186,29 +187,29 @@ class NewSessionDialog(tk.Toplevel):
         self.cfg = cfg
         self.result = None
         self._busy = False
-        self.title("新增對話")
+        self.title(tr("新增對話"))
         self.transient(master)
         self.resizable(False, False)
         set_icon(self)
 
         body = ttk.Frame(self, padding=16)
         body.grid(sticky="nsew")
-        ttk.Label(body, text="資料夾").grid(row=0, column=0, sticky="w",
+        ttk.Label(body, text=tr("資料夾")).grid(row=0, column=0, sticky="w",
                                           pady=(0, 6))
         self.cwd = tk.StringVar(value=initial_cwd)
         ttk.Entry(body, textvariable=self.cwd, width=46).grid(
             row=0, column=1, sticky="ew", padx=8, pady=(0, 6))
-        ttk.Button(body, text="瀏覽…", command=self.browse).grid(
+        ttk.Button(body, text=tr("瀏覽…"), command=self.browse).grid(
             row=0, column=2, pady=(0, 6))
 
-        ttk.Label(body, text="名稱").grid(row=1, column=0, sticky="w")
+        ttk.Label(body, text=tr("名稱")).grid(row=1, column=0, sticky="w")
         self.name = tk.StringVar()
         e = ttk.Entry(body, textvariable=self.name, width=46)
         e.grid(row=1, column=1, sticky="ew", padx=8)
 
         ttk.Label(body, foreground="#555555", wraplength=430, justify="left",
-                  text="留空：開啟新視窗，名稱由對話內容自動產生\n"
-                       "填寫：以 /rename 固定名稱並加入啟動清單（需數秒）").grid(
+                  text=tr("留空：開啟新視窗，名稱由對話內容自動產生\n"
+                          "填寫：以 /rename 固定名稱並加入啟動清單（需數秒）")).grid(
             row=2, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
         self.hint = ttk.Label(body, foreground="#8a6a10", wraplength=430,
@@ -222,9 +223,9 @@ class NewSessionDialog(tk.Toplevel):
 
         btns = ttk.Frame(body)
         btns.grid(row=5, column=0, columnspan=3, sticky="e", pady=(14, 0))
-        self.ok_btn = ttk.Button(btns, text="建立", command=self.ok)
+        self.ok_btn = ttk.Button(btns, text=tr("建立"), command=self.ok)
         self.ok_btn.pack(side="right")
-        self.cancel_btn = ttk.Button(btns, text="取消", command=self.destroy)
+        self.cancel_btn = ttk.Button(btns, text=tr("取消"), command=self.destroy)
         self.cancel_btn.pack(side="right", padx=8)
 
         body.columnconfigure(1, weight=1)
@@ -235,11 +236,11 @@ class NewSessionDialog(tk.Toplevel):
 
     def update_hint(self):
         self.hint.configure(
-            text=("ⓘ 家目錄：每次開啟皆詢問資料夾信任"
+            text=(tr("ⓘ 家目錄：每次開啟皆詢問資料夾信任")
                   if is_home(self.cwd.get().strip()) else ""))
 
     def browse(self):
-        d = filedialog.askdirectory(parent=self, title="選擇資料夾")
+        d = filedialog.askdirectory(parent=self, title=tr("選擇資料夾"))
         if d:
             self.cwd.set(os.path.normpath(d))
 
@@ -249,10 +250,10 @@ class NewSessionDialog(tk.Toplevel):
         cwd = self.cwd.get().strip()
         name = self.name.get().strip()
         if not cwd:
-            messagebox.showwarning("新增對話", "請選擇資料夾", parent=self)
+            messagebox.showwarning(tr("新增對話"), tr("請選擇資料夾"), parent=self)
             return
         if not os.path.isdir(cwd):
-            messagebox.showwarning("新增對話", "資料夾不存在\n\n%s" % cwd,
+            messagebox.showwarning(tr("新增對話"), tr("資料夾不存在\n\n%s") % cwd,
                                    parent=self)
             return
         if not name:
@@ -265,7 +266,7 @@ class NewSessionDialog(tk.Toplevel):
         self._busy = True
         self.ok_btn.configure(state="disabled")
         self.cancel_btn.configure(state="disabled")
-        self.status.configure(text="建立中…")
+        self.status.configure(text=tr("建立中…"))
 
         box = {}
 
@@ -288,7 +289,8 @@ class NewSessionDialog(tk.Toplevel):
             self.ok_btn.configure(state="normal")
             self.cancel_btn.configure(state="normal")
             self.status.configure(text="")
-            messagebox.showerror("新增對話", "建立失敗\n\n%s" % err, parent=self)
+            messagebox.showerror(tr("新增對話"), tr("建立失敗\n\n%s") % err,
+                                 parent=self)
             return
         self.result = {"name": name, "cwd": cwd, "session": sid}
         self.destroy()
@@ -389,47 +391,47 @@ class App(ttk.Frame):
 
         # 只放介面上沒有對應按鈕、或屬於程式層級的命令。
         m = tk.Menu(bar, tearoff=0)
-        m.add_command(label="新增對話…", accelerator="Ctrl+N",
+        m.add_command(label=tr("新增對話…"), accelerator="Ctrl+N",
                       command=self.new_session)
-        m.add_command(label="從 resume 指令加入…", command=self.paste_command)
+        m.add_command(label=tr("從 resume 指令加入…"), command=self.paste_command)
         m.add_separator()
-        m.add_command(label="儲存", accelerator="Ctrl+S", command=self.save)
-        m.add_command(label="結束", command=self.on_close)
-        bar.add_cascade(label="檔案", menu=m)
+        m.add_command(label=tr("儲存"), accelerator="Ctrl+S", command=self.save)
+        m.add_command(label=tr("結束"), command=self.on_close)
+        bar.add_cascade(label=tr("檔案"), menu=m)
 
         m = tk.Menu(bar, tearoff=0)
         self.v_cost = tk.BooleanVar(value=bool(self.ui["show_cost"]))
-        m.add_checkbutton(label="顯示金額", variable=self.v_cost,
+        m.add_checkbutton(label=tr("顯示金額"), variable=self.v_cost,
                           command=self.apply_columns)
         self.v_ctx = tk.BooleanVar(value=bool(self.ui["show_context"]))
-        m.add_checkbutton(label="顯示脈絡使用率", variable=self.v_ctx,
+        m.add_checkbutton(label=tr("顯示脈絡使用率"), variable=self.v_ctx,
                           command=self.apply_columns)
         self.v_full = tk.BooleanVar(value=bool(self.ui["fulltext"]))
-        m.add_checkbutton(label="搜尋對話內容", variable=self.v_full,
+        m.add_checkbutton(label=tr("搜尋對話內容"), variable=self.v_full,
                           command=self.on_fulltext_toggle)
-        m.add_checkbutton(label="只看最近 30 天", variable=self.recent_only,
+        m.add_checkbutton(label=tr("只看最近 30 天"), variable=self.recent_only,
                           command=self.fill_tree)
         self.v_arch = tk.BooleanVar(value=bool(self.ui["show_archived"]))
-        m.add_checkbutton(label="顯示已封存", variable=self.v_arch,
+        m.add_checkbutton(label=tr("顯示已封存"), variable=self.v_arch,
                           command=self.on_archived_toggle)
-        bar.add_cascade(label="檢視", menu=m)
+        bar.add_cascade(label=tr("檢視"), menu=m)
 
         m = tk.Menu(bar, tearoff=0)
-        m.add_command(label="Claude Code 設定…", accelerator="Ctrl+,",
+        m.add_command(label=tr("Claude Code 設定…"), accelerator="Ctrl+,",
                       command=self.edit_claude_settings)
-        m.add_command(label="工作台選項…", command=self.edit_workbench_options)
+        m.add_command(label=tr("工作台選項…"), command=self.edit_workbench_options)
         m.add_separator()
         self.v_startup = tk.BooleanVar(value=startup.is_enabled())
-        m.add_checkbutton(label="開機時自動開啟",
+        m.add_checkbutton(label=tr("開機時自動開啟"),
                           variable=self.v_startup, command=self.toggle_startup)
         m.add_separator()
-        m.add_command(label="程式所在資料夾", command=self.open_folder)
-        m.add_command(label="錯誤記錄檔", command=self.open_log)
-        bar.add_cascade(label="工具", menu=m)
+        m.add_command(label=tr("程式所在資料夾"), command=self.open_folder)
+        m.add_command(label=tr("錯誤記錄檔"), command=self.open_log)
+        bar.add_cascade(label=tr("工具"), menu=m)
 
         m = tk.Menu(bar, tearoff=0)
-        m.add_command(label="關於", command=self.about)
-        bar.add_cascade(label="說明", menu=m)
+        m.add_command(label=tr("關於"), command=self.about)
+        bar.add_cascade(label=tr("說明"), menu=m)
 
         root.configure(menu=bar)
         root.bind("<Control-comma>", lambda _: self.edit_claude_settings())
@@ -440,28 +442,29 @@ class App(ttk.Frame):
     # ---------------- 右鍵選單 ----------------
     def _build_context_menus(self):
         self.tree_menu = tk.Menu(self, tearoff=0)
-        self.tree_menu.add_command(label="開啟", command=self.open_from_tree)
-        self.tree_menu.add_command(label="加入啟動清單",
+        self.tree_menu.add_command(label=tr("開啟"), command=self.open_from_tree)
+        self.tree_menu.add_command(label=tr("加入啟動清單"),
                                    command=self.add_selected)
-        self.tree_menu.add_command(label="封存", command=self.toggle_archive)
-        self.tree_menu.add_command(label="重新命名", accelerator="F2",
+        self.tree_menu.add_command(label=tr("封存"), command=self.toggle_archive)
+        self.tree_menu.add_command(label=tr("重新命名"), accelerator="F2",
                                    command=self.rename_session_title)
         self.tree_menu.add_separator()
-        self.tree_menu.add_command(label="移至其他資料夾…",
+        self.tree_menu.add_command(label=tr("移至其他資料夾…"),
                                    command=self.move_to_folder)
-        self.tree_menu.add_command(label="複製 resume 指令",
+        self.tree_menu.add_command(label=tr("複製 resume 指令"),
                                    command=self.copy_resume)
         self.tree.bind("<Button-3>", self._tree_context)
 
         self.picked_menu = tk.Menu(self, tearoff=0)
-        self.picked_menu.add_command(label="開啟", command=self.open_from_picked)
-        self.picked_menu.add_command(label="重新命名", accelerator="F2",
+        self.picked_menu.add_command(label=tr("開啟"),
+                                     command=self.open_from_picked)
+        self.picked_menu.add_command(label=tr("重新命名"), accelerator="F2",
                                      command=self.rename_item)
         self.picked_menu.add_separator()
-        self.picked_menu.add_command(label="上移", command=self.move_up)
-        self.picked_menu.add_command(label="下移", command=self.move_down)
+        self.picked_menu.add_command(label=tr("上移"), command=self.move_up)
+        self.picked_menu.add_command(label=tr("下移"), command=self.move_down)
         self.picked_menu.add_separator()
-        self.picked_menu.add_command(label="移除", command=self.remove_item)
+        self.picked_menu.add_command(label=tr("移除"), command=self.remove_item)
         self.picked.bind("<Button-3>", self._picked_context)
 
     def _context_select(self, tree, event):
@@ -475,8 +478,8 @@ class App(ttk.Frame):
         if not self._context_select(self.tree, event):
             return
         picked = self.selected_sessions()
-        label = ("取消封存" if picked and
-                 all(s in self.archived for s in picked) else "封存")
+        label = (tr("取消封存") if picked and
+                 all(s in self.archived for s in picked) else tr("封存"))
         self.tree_menu.entryconfigure(2, label=label)
         for idx in (3, 5, 6):     # 重新命名、移至其他資料夾、複製 resume 指令
             self.tree_menu.entryconfigure(
@@ -498,17 +501,17 @@ class App(ttk.Frame):
             return
         sid = picked[0]
         if sid.lower() in self.running:
-            messagebox.showwarning("移至其他資料夾",
-                                   "該對話開啟中，關閉後再搬移")
+            messagebox.showwarning(tr("移至其他資料夾"),
+                                   tr("該對話開啟中，關閉後再搬移"))
             return
         item = self.item_for(sid)
-        dest = filedialog.askdirectory(parent=self, title="選擇目標資料夾")
+        dest = filedialog.askdirectory(parent=self, title=tr("選擇目標資料夾"))
         if not dest:
             return
         dest = os.path.normpath(dest)
         ok, err = sessions.move_session(sid, dest)
         if not ok:
-            messagebox.showwarning("移至其他資料夾", err)
+            messagebox.showwarning(tr("移至其他資料夾"), err)
             return
         changed = False
         for it in self.items:
@@ -518,7 +521,7 @@ class App(ttk.Frame):
         if changed:
             self._touch()
             self.save()
-        self.status.configure(text="已移至 %s" % dest)
+        self.status.configure(text=tr("已移至 %s") % dest)
         self.rescan()
 
     def copy_resume(self):
@@ -531,7 +534,7 @@ class App(ttk.Frame):
         cmd = "cd '%s' ; claude --resume %s" % (item["cwd"], item["session"])
         self.clipboard_clear()
         self.clipboard_append(cmd)
-        self.status.configure(text="已複製 resume 指令")
+        self.status.configure(text=tr("已複製 resume 指令"))
 
     # ---------------- 介面 ----------------
     def _build(self):
@@ -542,31 +545,31 @@ class App(ttk.Frame):
 
         bar = ttk.Frame(self)
         bar.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 12))
-        ttk.Label(bar, text="搜尋").pack(side="left")
+        ttk.Label(bar, text=tr("搜尋")).pack(side="left")
         self.q = tk.StringVar()
         self.q.trace_add("write", lambda *_: self.schedule_filter())
         ttk.Entry(bar, textvariable=self.q, width=26).pack(side="left",
                                                            padx=(8, 16))
-        ttk.Button(bar, text="新增對話",
+        ttk.Button(bar, text=tr("新增對話"),
                    command=self.new_session).pack(side="left")
-        ttk.Button(bar, text="重新掃描",
+        ttk.Button(bar, text=tr("重新掃描"),
                    command=self.rescan).pack(side="left", padx=10)
         self.status = ttk.Label(bar, text="", foreground="#555555")
         self.status.pack(side="right")
 
         # 左：全機對話
-        left = ttk.LabelFrame(self, text="電腦上所有對話", padding=10)
+        left = ttk.LabelFrame(self, text=tr("電腦上所有對話"), padding=10)
         left.grid(row=1, column=0, sticky="nsew")
         left.rowconfigure(0, weight=1)
         left.columnconfigure(0, weight=1)
         self.tree = ttk.Treeview(left, columns=("cost", "ctx", "when"),
                                  show="tree headings", selectmode="extended")
-        self.tree.heading("#0", text="對話", anchor="w")
-        self.tree.heading("cost", text="金額", anchor="e",
+        self.tree.heading("#0", text=tr("對話"), anchor="w")
+        self.tree.heading("cost", text=tr("金額"), anchor="e",
                           command=lambda: self.set_sort("cost"))
-        self.tree.heading("ctx", text="脈絡", anchor="e",
+        self.tree.heading("ctx", text=tr("脈絡"), anchor="e",
                           command=lambda: self.set_sort("ctx"))
-        self.tree.heading("when", text="最後使用", anchor="center",
+        self.tree.heading("when", text=tr("最後使用"), anchor="center",
                           command=lambda: self.set_sort("mtime"))
         self.tree.column("#0", width=self.ui["tree_name"], minwidth=180,
                          stretch=True)
@@ -595,24 +598,24 @@ class App(ttk.Frame):
         mid.grid(row=1, column=1, sticky="ns", padx=12)
         holder = ttk.Frame(mid)
         holder.pack(expand=True)
-        ttk.Button(holder, text="加入  →", command=self.add_selected,
+        ttk.Button(holder, text=tr("加入  →"), command=self.add_selected,
                    width=9).pack()
-        self.arch_btn = ttk.Button(holder, text="封存",
+        self.arch_btn = ttk.Button(holder, text=tr("封存"),
                                    command=self.toggle_archive, width=9)
         self.arch_btn.pack(pady=(10, 0))
         self.tree.bind("<<TreeviewSelect>>",
                        lambda _: self.update_archive_button(), add="+")
 
         # 右：啟動清單
-        right = ttk.LabelFrame(self, text="啟動清單（由上到下依序開啟）",
+        right = ttk.LabelFrame(self, text=tr("啟動清單（由上到下依序開啟）"),
                                padding=10)
         right.grid(row=1, column=2, sticky="nsew")
         right.rowconfigure(0, weight=1)
         right.columnconfigure(0, weight=1)
         self.picked = ttk.Treeview(right, columns=("cwd",),
                                    show="tree headings", selectmode="extended")
-        self.picked.heading("#0", text="視窗名稱", anchor="w")
-        self.picked.heading("cwd", text="資料夾", anchor="w")
+        self.picked.heading("#0", text=tr("視窗名稱"), anchor="w")
+        self.picked.heading("cwd", text=tr("資料夾"), anchor="w")
         self.picked.column("#0", width=self.ui["picked_name"], minwidth=110,
                            stretch=False)
         self.picked.column("cwd", width=self.ui["picked_cwd"], minwidth=140,
@@ -631,8 +634,8 @@ class App(ttk.Frame):
         tools = ttk.Frame(right)
         tools.grid(row=1, column=0, sticky="w", pady=(10, 0))
         for txt, fn, w in [("▲", self.move_up, 3), ("▼", self.move_down, 3),
-                           ("重新命名", self.rename_item, 9),
-                           ("移除", self.remove_item, 6)]:
+                           (tr("重新命名"), self.rename_item, 9),
+                           (tr("移除"), self.remove_item, 6)]:
             ttk.Button(tools, text=txt, command=fn,
                        width=w).pack(side="left", padx=(0, 6))
 
@@ -643,9 +646,9 @@ class App(ttk.Frame):
         bot.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(12, 0))
         self.total = ttk.Label(bot, text="", foreground="#555555")
         self.total.pack(side="left")
-        ttk.Button(bot, text="立即啟動",
+        ttk.Button(bot, text=tr("立即啟動"),
                    command=self.launch_now).pack(side="right")
-        ttk.Button(bot, text="儲存", command=self.save).pack(side="right",
+        ttk.Button(bot, text=tr("儲存"), command=self.save).pack(side="right",
                                                             padx=10)
         self._update_sort_marks()
 
@@ -698,11 +701,11 @@ class App(ttk.Frame):
     def _update_sort_marks(self):
         arrow = " ▼" if self.ui["sort_desc"] else " ▲"
         key = self.ui["sort_key"]
-        self.tree.heading("cost", text="金額" +
+        self.tree.heading("cost", text=tr("金額") +
                           (arrow if key == "cost" else ""))
-        self.tree.heading("ctx", text="脈絡" +
+        self.tree.heading("ctx", text=tr("脈絡") +
                           (arrow if key == "ctx" else ""))
-        self.tree.heading("when", text="最後使用" +
+        self.tree.heading("when", text=tr("最後使用") +
                           (arrow if key == "mtime" else ""))
 
     # ---------------- 取消選取 ----------------
@@ -757,7 +760,7 @@ class App(ttk.Frame):
         cfg["ui"] = self.collect_ui()
         if self.dirty:
             ans = messagebox.askyesnocancel(
-                "Claude 工作台", "啟動清單有未儲存的變更，是否儲存？")
+                tr("Claude 工作台"), tr("啟動清單有未儲存的變更，是否儲存？"))
             if ans is None:
                 return
             if ans:
@@ -771,13 +774,13 @@ class App(ttk.Frame):
         if self._scan_busy:
             return
         self._scan_busy = True
-        self.status.configure(text="掃描中…")
+        self.status.configure(text=tr("掃描中…"))
         self.refresh_running()
 
         def done(result, err):
             self._scan_busy = False
             if err or result is None:
-                self.status.configure(text="掃描失敗，詳見錯誤記錄檔")
+                self.status.configure(text=tr("掃描失敗，詳見錯誤記錄檔"))
                 return
             self.sessions = result
             self.apply_columns()
@@ -809,22 +812,22 @@ class App(ttk.Frame):
 
     def update_status(self):
         total = sum(s["cost"] for s in self.sessions)
-        bits = ["共 %d 條" % len(self.sessions)]
+        bits = [tr("共 %d 條") % len(self.sessions)]
         n = len([s for s in self.sessions if s["id"] in self.archived])
         if n:
-            bits.append("已封存 %d" % n)
+            bits.append(tr("已封存 %d") % n)
         if self.running:
             live = len([s for s in self.sessions
                         if s["id"].lower() in self.running])
             if live:
-                bits.append("執行中 %d" % live)
-        self.status.configure(text="　·　".join(bits))
-        text = "累計 %s（估算）" % sessions.money(total)
+                bits.append(tr("執行中 %d") % live)
+        self.status.configure(text=tr("　·　").join(bits))
+        text = tr("累計 %s（估算）") % sessions.money(total)
         unknown = sorted({m for s in self.sessions
                           for m in s.get("unpriced", [])})
         if unknown:
             # 出現尚無費率資料的模型時明確標示，而非套用舊費率
-            text += "　·　⚠ 無費率資料：%s" % "、".join(unknown[:3])
+            text += tr("　·　⚠ 無費率資料：%s") % tr("、").join(unknown[:3])
         self.total.configure(text=text)
 
     # ---------------- 背景輪詢 ----------------
@@ -879,7 +882,7 @@ class App(ttk.Frame):
         self._filter_job = None
         q = self.q.get().strip()
         if self.v_full.get() and len(q) >= 2:
-            self.status.configure(text="搜尋中…")
+            self.status.configure(text=tr("搜尋中…"))
             self._grep_gen += 1
             gen = self._grep_gen
 
@@ -887,13 +890,13 @@ class App(ttk.Frame):
                 if gen != self._grep_gen:      # 過期的結果直接丟棄
                     return
                 if err or hits is None:
-                    self.status.configure(text="搜尋失敗，詳見錯誤記錄檔")
+                    self.status.configure(text=tr("搜尋失敗，詳見錯誤記錄檔"))
                     return
                 self.hits = hits
                 self.fill_tree()
-                msg = "命中 %d 條" % len(hits)
+                msg = tr("命中 %d 條") % len(hits)
                 if self.hidden:
-                    msg += "　·　另有 %d 條已封存符合" % self.hidden
+                    msg += tr("　·　另有 %d 條已封存符合") % self.hidden
                 self.status.configure(text=msg)
 
             self.run_bg(sessions.grep, done, q)
@@ -925,17 +928,17 @@ class App(ttk.Frame):
             if self.hits is not None:
                 if s["id"] not in self.hits:
                     continue
-                text = "%s   〔命中 %d〕" % (text, self.hits[s["id"]])
+                text = tr("%s   〔命中 %d〕") % (text, self.hits[s["id"]])
             elif q and q not in text.lower() and q not in s["cwd"].lower():
                 continue
             if s["id"] in self.archived:
                 if not show_arch:
                     self.hidden += 1
                     continue
-                text += "　（已封存）"
+                text += tr("　（已封存）")
             if s["id"].lower() in self.running:
                 text = RUN_MARK + text
-            groups.setdefault(s["cwd"] or "(不明)", []).append((s, text))
+            groups.setdefault(s["cwd"] or tr("(不明)"), []).append((s, text))
 
         def group_rank(cwd):
             vals = [x[0][key] for x in groups[cwd]]
@@ -977,12 +980,12 @@ class App(ttk.Frame):
                 tags = ("busy",) if status == "busy" else ("running",)
                 name = RUN_MARK + name
             if s is None and not sessions.find_file(item["session"]):
-                tags, name = ("stale",), item["name"] + "  ⚠ 找不到"
+                tags, name = ("stale",), item["name"] + tr("  ⚠ 找不到")
             elif s is not None and sessions.newer_handoff(
                     self.sessions, s["cwd"], s["mtime"]):
-                tags, name = ("stale",), item["name"] + "  ⚠ 有更新的接續"
+                tags, name = ("stale",), item["name"] + tr("  ⚠ 有更新的接續")
             elif not tags and is_home(item["cwd"]):
-                tags, name = ("note",), name + "  ⓘ 每次會問信任"
+                tags, name = ("note",), name + tr("  ⓘ 每次會問信任")
             self.picked.insert("", "end", iid=str(n), text=name,
                                values=(item["cwd"],), tags=tags)
 
@@ -1001,9 +1004,9 @@ class App(ttk.Frame):
                 sid = dlg.result["session"].lower()
                 self._just_launched[sid] = time.time()
                 self.running.add(sid)
-                self.status.configure(text="已開啟新對話")
+                self.status.configure(text=tr("已開啟新對話"))
             except Exception as e:
-                messagebox.showwarning("新增對話", "開啟失敗\n\n%s" % e)
+                messagebox.showwarning(tr("新增對話"), tr("開啟失敗\n\n%s") % e)
             return
         self.items.append(dlg.result)
         self._touch(select_last=True)
@@ -1033,41 +1036,41 @@ class App(ttk.Frame):
         if not targets or self._launching:
             return
         if confirm and len(targets) > 1 and not messagebox.askyesno(
-                "開啟", "開啟 %d 條對話？" % len(targets)):
+                tr("開啟"), tr("開啟 %d 條對話？") % len(targets)):
             return
         cfg = config.load()
         quiet = len(targets) > 1
         todo, skipped = [], []
         for t in targets:
             if not os.path.isdir(t["cwd"]):
-                skipped.append("%s　資料夾不存在" % t["name"])
+                skipped.append(tr("%s　資料夾不存在") % t["name"])
                 if not quiet:
-                    messagebox.showwarning("Claude 工作台",
-                                           "資料夾不存在\n\n%s" % t["cwd"])
+                    messagebox.showwarning(tr("Claude 工作台"),
+                                           tr("資料夾不存在\n\n%s") % t["cwd"])
             elif not sessions.find_file(t["session"]):
-                skipped.append("%s　找不到對話紀錄" % t["name"])
+                skipped.append(tr("%s　找不到對話紀錄") % t["name"])
                 if not quiet:
-                    messagebox.showwarning("Claude 工作台",
-                                           "找不到對話紀錄：%s" % t["name"])
+                    messagebox.showwarning(tr("Claude 工作台"),
+                                           tr("找不到對話紀錄：%s") % t["name"])
             elif t["session"].lower() in self._rename_guard:
-                skipped.append("%s　名稱同步中" % t["name"])
+                skipped.append(tr("%s　名稱同步中") % t["name"])
                 if not quiet:
-                    self.status.configure(text="名稱同步中，稍候再開")
+                    self.status.configure(text=tr("名稱同步中，稍候再開"))
             elif cfg.get("skip_running", True) and \
                     t["session"].lower() in self.running:
-                skipped.append("%s　已開啟" % t["name"])
+                skipped.append(tr("%s　已開啟") % t["name"])
                 if not quiet:
-                    self.status.configure(text="已開啟：%s" % t["name"])
+                    self.status.configure(text=tr("已開啟：%s") % t["name"])
             else:
                 todo.append(t)
         if not todo:
             if quiet and skipped:
-                messagebox.showinfo("Claude 工作台",
-                                    "未開啟：\n\n%s" % "\n".join(skipped))
+                messagebox.showinfo(tr("Claude 工作台"),
+                                    tr("未開啟：\n\n%s") % "\n".join(skipped))
             return
 
         self._launching = True
-        self.status.configure(text="開啟中…")
+        self.status.configure(text=tr("開啟中…"))
 
         def worker():
             opened = 0
@@ -1079,7 +1082,7 @@ class App(ttk.Frame):
                     self.running.add(sid)
                     self._just_launched[sid] = time.time()
                     self._post(lambda nm=item["name"]:
-                               self.status.configure(text="已開啟：%s" % nm))
+                               self.status.configure(text=tr("已開啟：%s") % nm))
                 except Exception:
                     try:
                         applog.get().exception("launch failed: %s",
@@ -1087,17 +1090,17 @@ class App(ttk.Frame):
                     except Exception:
                         pass
                     self._post(lambda nm=item["name"]: self.status.configure(
-                        text="開啟失敗：%s（詳見錯誤記錄檔）" % nm))
+                        text=tr("開啟失敗：%s（詳見錯誤記錄檔）") % nm))
                 if n < len(todo) - 1:
                     time.sleep(cfg.get("stagger_ms", 700) / 1000.0)
 
             def finish():
                 self._launching = False
                 if len(todo) > 1 or skipped:
-                    bits = ["已開啟 %d／%d" % (opened, len(targets))]
+                    bits = [tr("已開啟 %d／%d") % (opened, len(targets))]
                     if skipped:
-                        bits.append("略過 %d" % len(skipped))
-                    self.status.configure(text="　·　".join(bits))
+                        bits.append(tr("略過 %d") % len(skipped))
+                    self.status.configure(text=tr("　·　").join(bits))
                 self.refresh_views()
                 self.update_status()
             self._post(finish)
@@ -1128,11 +1131,11 @@ class App(ttk.Frame):
     def update_archive_button(self):
         picked = self.selected_sessions()
         if not picked:
-            self.arch_btn.configure(text="封存", state="disabled")
+            self.arch_btn.configure(text=tr("封存"), state="disabled")
         elif all(sid in self.archived for sid in picked):
-            self.arch_btn.configure(text="取消封存", state="normal")
+            self.arch_btn.configure(text=tr("取消封存"), state="normal")
         else:
-            self.arch_btn.configure(text="封存", state="normal")
+            self.arch_btn.configure(text=tr("封存"), state="normal")
 
     def toggle_archive(self):
         picked = self.selected_sessions()
@@ -1140,24 +1143,24 @@ class App(ttk.Frame):
             return
         if all(sid in self.archived for sid in picked):
             self.archived.difference_update(picked)
-            note = "已取消封存 %d 條" % len(picked)
+            note = tr("已取消封存 %d 條") % len(picked)
         else:
             fresh = [sid for sid in picked if sid not in self.archived]
             if len(fresh) > 1 and not messagebox.askyesno(
-                    "封存", "封存 %d 條對話？" % len(fresh)):
+                    tr("封存"), tr("封存 %d 條對話？") % len(fresh)):
                 return
             in_list = [i for i in self.items if i["session"] in fresh]
             if in_list:
-                names = "、".join(i["name"] for i in in_list[:5])
+                names = tr("、").join(i["name"] for i in in_list[:5])
                 if not messagebox.askyesno(
-                        "封存", "%d 條在啟動清單中：%s\n\n一併從啟動清單移除？"
+                        tr("封存"), tr("%d 條在啟動清單中：%s\n\n一併從啟動清單移除？")
                                 % (len(in_list), names)):
                     return
                 keep = {i["session"] for i in in_list}
                 self.items = [i for i in self.items if i["session"] not in keep]
                 self._touch()
             self.archived.update(fresh)
-            note = "已封存 %d 條" % len(fresh)
+            note = tr("已封存 %d 條") % len(fresh)
         self.save_archived()
         self.fill_tree()
         self.update_status()
@@ -1192,13 +1195,13 @@ class App(ttk.Frame):
                                "cwd": s["cwd"], "session": sid})
             added += 1
         if not added:
-            messagebox.showinfo("Claude 工作台", "已在啟動清單中")
+            messagebox.showinfo(tr("Claude 工作台"), tr("已在啟動清單中"))
             return
         self._touch(select_last=True)
         skipped = len(picked) - added
         self.status.configure(
-            text="已加入 %d 條%s" % (added,
-                                  ("　·　略過 %d 條" % skipped) if skipped else ""))
+            text=tr("已加入 %d 條%s")
+                 % (added, (tr("　·　略過 %d 條") % skipped) if skipped else ""))
 
     def _touch(self, select_last=False):
         """啟動清單有變動；新加入的項目自動選取。"""
@@ -1223,27 +1226,27 @@ class App(ttk.Frame):
         if not picked:
             return
         if len(picked) > 1 and not messagebox.askyesno(
-                "移除", "從啟動清單移除 %d 條？" % len(picked)):
+                tr("移除"), tr("從啟動清單移除 %d 條？") % len(picked)):
             return
         for n in reversed(picked):
             del self.items[n]
         self._touch()
-        self.status.configure(text="已移除 %d 條" % len(picked))
+        self.status.configure(text=tr("已移除 %d 條") % len(picked))
 
     def _push_rename(self, item, name, after=None):
         """把名稱同步到 Claude（背景）。同步期間暫停開啟該對話。"""
         sid = item["session"].lower()
         self._rename_guard.add(sid)
-        self.status.configure(text="同步名稱至 Claude 中…")
+        self.status.configure(text=tr("同步名稱至 Claude 中…"))
 
         def done(result, err):
             self._rename_guard.discard(sid)
             ok, msg = result if result else (False, err)
             if not ok:
-                self.status.configure(text="Claude 端改名失敗：%s"
-                                           % str(msg)[:60])
+                self.status.configure(
+                    text=tr("Claude 端改名失敗：%s") % str(msg)[:60])
             else:
-                self.status.configure(text="已改名：%s" % name)
+                self.status.configure(text=tr("已改名：%s") % name)
                 if after:
                     after()
 
@@ -1265,7 +1268,7 @@ class App(ttk.Frame):
             self.picked.selection_set(str(n))
             if item["session"].lower() in self.running:
                 self.status.configure(
-                    text="已改名：%s　·　對話開啟中，Claude 端名稱未變" % name)
+                    text=tr("已改名：%s　·　對話開啟中，Claude 端名稱未變") % name)
                 return
             self._push_rename(item, name)
 
@@ -1282,7 +1285,7 @@ class App(ttk.Frame):
             return
         if sid.lower() in self.running:
             self.status.configure(
-                text="對話開啟中；請於該視窗輸入 /rename")
+                text=tr("對話開啟中；請於該視窗輸入 /rename"))
             return
 
         def commit(name):
@@ -1338,21 +1341,21 @@ class App(ttk.Frame):
         except Exception:
             text = ""
         text = simpledialog.askstring(
-            "貼上 resume 指令",
-            "貼上 Claude 結束時輸出的指令：",
+            tr("貼上 resume 指令"),
+            tr("貼上 Claude 結束時輸出的指令："),
             initialvalue=text.strip().replace("\n", " "), parent=self)
         if not text:
             return
         m = RESUME_RE.search(text)
         if not m:
             messagebox.showwarning(
-                "Claude 工作台",
-                "無法解析。格式：\n\n"
-                "cd 'D:\\某資料夾' ; claude --resume 3e3f0e02-…")
+                tr("Claude 工作台"),
+                tr("無法解析。格式：\n\n"
+                   "cd 'D:\\某資料夾' ; claude --resume 3e3f0e02-…"))
             return
         cwd, sid = m.group(1).strip(), m.group(2)
         if any(i["session"] == sid for i in self.items):
-            messagebox.showinfo("Claude 工作台", "已在啟動清單中")
+            messagebox.showinfo(tr("Claude 工作台"), tr("已在啟動清單中"))
             return
         s = sessions.by_id(self.sessions).get(sid)
         name = sessions.label(s)[:20] if s else os.path.basename(cwd)
@@ -1364,21 +1367,23 @@ class App(ttk.Frame):
         ok, err = startup.set_enabled(want)
         if not ok:
             self.v_startup.set(not want)
-            messagebox.showerror("開機自動啟動", "設定失敗：\n\n%s" % err)
+            messagebox.showerror(tr("開機自動啟動"), tr("設定失敗：\n\n%s") % err)
             return
         real = startup.is_enabled()
         self.v_startup.set(real)
-        self.status.configure(text="開機自動啟動：%s" % ("開啟" if real else "關閉"))
+        self.status.configure(
+            text=tr("開機自動啟動：%s")
+                 % (tr("開啟", "bool") if real else tr("關閉", "bool")))
 
     def edit_claude_settings(self):
         if not self.schema_ready:
-            self.status.configure(text="設定結構讀取中…")
+            self.status.configure(text=tr("設定結構讀取中…"))
             self.after(400, self.edit_claude_settings)
             return
         dlg = options.open_claude_settings(self.winfo_toplevel())
         self.wait_window(dlg)
         if dlg.changed:
-            self.status.configure(text="Claude Code 設定已更新")
+            self.status.configure(text=tr("Claude Code 設定已更新"))
 
     def edit_workbench_options(self):
         # 先寫入目前的介面狀態，對話框才讀得到最新值
@@ -1395,40 +1400,40 @@ class App(ttk.Frame):
                 self.ui[key] = bool(ui.get(key, DEFAULT_UI[key]))
                 var.set(self.ui[key])
             self.apply_columns()
-            self.status.configure(text="工作台選項已更新")
+            self.status.configure(text=tr("工作台選項已更新"))
 
     def open_folder(self):
         try:
             os.startfile(os.path.dirname(os.path.abspath(__file__)))
         except OSError as e:
-            messagebox.showwarning("Claude 工作台", str(e))
+            messagebox.showwarning(tr("Claude 工作台"), str(e))
 
     def open_log(self):
         import appdata
         path = appdata.log_path()
         if not os.path.exists(path):
-            messagebox.showinfo("錯誤記錄檔", "尚無記錄")
+            messagebox.showinfo(tr("錯誤記錄檔"), tr("尚無記錄"))
             return
         try:
             os.startfile(path)
         except OSError as e:
-            messagebox.showwarning("Claude 工作台", str(e))
+            messagebox.showwarning(tr("Claude 工作台"), str(e))
 
     def about(self):
         import claudeschema
         schema = claudeschema.load()
         messagebox.showinfo(
-            "關於 Claude 工作台",
-            "Claude 工作台 v%s\n\n"
-            "把固定的幾個 Claude Code 對話各自開在獨立視窗並接續進度。\n"
-            "金額為依公開費率換算的估算值；未涵蓋 1M 長脈絡溢價。\n"
-            "非官方社群工具，與 Anthropic 無關。\n\n"
-            "Claude Code 版本：%s\n"
-            "程式位置：%s\n"
-            "對話紀錄：%s\n"
-            "記錄檔：%s"
+            tr("關於 Claude 工作台"),
+            tr("Claude 工作台 v%s\n\n"
+               "把固定的幾個 Claude Code 對話各自開在獨立視窗並接續進度。\n"
+               "金額為依公開費率換算的估算值；未涵蓋 1M 長脈絡溢價。\n"
+               "非官方社群工具，與 Anthropic 無關。\n\n"
+               "Claude Code 版本：%s\n"
+               "程式位置：%s\n"
+               "對話紀錄：%s\n"
+               "記錄檔：%s")
             % (__import__("version").__version__,
-               schema.get("version") or "未知",
+               schema.get("version") or tr("未知"),
                os.path.dirname(os.path.abspath(__file__)), sessions.PROJECTS,
                __import__("appdata").log_path()))
 
@@ -1441,7 +1446,7 @@ class App(ttk.Frame):
         config.save(cfg)
         self.cfg = cfg
         self.dirty = False
-        self.status.configure(text="已儲存　·　%d 個項目" % len(self.items))
+        self.status.configure(text=tr("已儲存　·　%d 個項目") % len(self.items))
 
     def launch_now(self):
         self.save()
@@ -1495,7 +1500,7 @@ def main():
     root.deiconify()
     if app.config_error:
         root.after(300, lambda: messagebox.showwarning(
-            "Claude 工作台", app.config_error))
+            tr("Claude 工作台"), app.config_error))
     root.mainloop()
 
 
