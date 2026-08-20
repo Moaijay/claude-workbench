@@ -119,6 +119,8 @@ EN = {
     "預覽失敗，詳見錯誤記錄檔": "Preview failed; see the error log",
     "（檔尾沒有可顯示的訊息）": "(no recent messages to show)",
     "我": "Me",
+    "模型": "Model",
+    "（沿用預設）": "(use default)",
     "　·　略過 %d 條": " · %d skipped",
     "已加入 %d 條%s": "%d added%s",
     "已移除 %d 條": "%d removed",

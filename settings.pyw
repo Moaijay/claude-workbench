@@ -108,6 +108,18 @@ def ctx_text(info):
     return "%d%%" % round(pct * 100)
 
 
+def _effort_levels():
+    """effort 的可選值：CLI 文件明列的固定清單，補上 schema 掃出的新值。"""
+    base = ["low", "medium", "high", "xhigh", "max"]
+    try:
+        import claudeschema
+        extra = (claudeschema.load().get("enums") or {}).get(
+            "effortLevel") or []
+    except Exception:
+        extra = []
+    return base + [v for v in extra if v not in base]
+
+
 def is_home(path):
     """Claude Code 不儲存家目錄的信任狀態，於此開啟的對話每次都會詢問。"""
     try:
@@ -207,22 +219,39 @@ class NewSessionDialog(tk.Toplevel):
         e = ttk.Entry(body, textvariable=self.name, width=46)
         e.grid(row=1, column=1, sticky="ew", padx=8)
 
+        # 模型與 effort：這個視窗自己的選擇，經 --model／--effort 傳給
+        # claude；「沿用預設」就完全不帶旗標
+        self.default_label = tr("（沿用預設）")
+        picks = ttk.Frame(body)
+        picks.grid(row=2, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        ttk.Label(picks, text=tr("模型")).pack(side="left")
+        self.model = tk.StringVar(value=self.default_label)
+        ttk.Combobox(picks, textvariable=self.model, width=16,
+                     values=[self.default_label, "fable", "opus",
+                             "sonnet"]).pack(side="left", padx=(8, 20))
+        ttk.Label(picks, text="Effort").pack(side="left")
+        self.effort = tk.StringVar(value=self.default_label)
+        ttk.Combobox(picks, textvariable=self.effort, width=12,
+                     state="readonly",
+                     values=[self.default_label] + _effort_levels()
+                     ).pack(side="left", padx=8)
+
         ttk.Label(body, foreground="#555555", wraplength=430, justify="left",
                   text=tr("留空：開啟新視窗，名稱由對話內容自動產生\n"
                           "填寫：以 /rename 固定名稱並加入啟動清單（需數秒）")).grid(
-            row=2, column=0, columnspan=3, sticky="w", pady=(12, 0))
+            row=3, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
         self.hint = ttk.Label(body, foreground="#8a6a10", wraplength=430,
                               justify="left", text="")
-        self.hint.grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self.hint.grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
         self.cwd.trace_add("write", lambda *_: self.update_hint())
         self.update_hint()
 
         self.status = ttk.Label(body, text="", foreground="#555555")
-        self.status.grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        self.status.grid(row=5, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
         btns = ttk.Frame(body)
-        btns.grid(row=5, column=0, columnspan=3, sticky="e", pady=(14, 0))
+        btns.grid(row=6, column=0, columnspan=3, sticky="e", pady=(14, 0))
         self.ok_btn = ttk.Button(btns, text=tr("建立"), command=self.ok)
         self.ok_btn.pack(side="right")
         self.cancel_btn = ttk.Button(btns, text=tr("取消"), command=self.destroy)
@@ -260,7 +289,9 @@ class NewSessionDialog(tk.Toplevel):
             # 未命名：直接開新視窗，名稱由 Claude 依對話內容自動產生
             import uuid
             self.result = {"name": os.path.basename(cwd) or cwd, "cwd": cwd,
-                           "session": str(uuid.uuid4()), "new": True}
+                           "session": str(uuid.uuid4()), "new": True,
+                           "model": self._pick(self.model),
+                           "effort": self._pick(self.effort)}
             self.destroy()
             return
         self._busy = True
@@ -292,8 +323,14 @@ class NewSessionDialog(tk.Toplevel):
             messagebox.showerror(tr("新增對話"), tr("建立失敗\n\n%s") % err,
                                  parent=self)
             return
-        self.result = {"name": name, "cwd": cwd, "session": sid}
+        self.result = {"name": name, "cwd": cwd, "session": sid,
+                       "model": self._pick(self.model),
+                       "effort": self._pick(self.effort)}
         self.destroy()
+
+    def _pick(self, var):
+        v = var.get().strip()
+        return "" if not v or v == self.default_label else v
 
 
 class App(ttk.Frame):
@@ -1098,22 +1135,24 @@ class App(ttk.Frame):
         dlg = NewSessionDialog(self.winfo_toplevel(), cfg,
                                config.new_session_cwd(cfg))
         self.wait_window(dlg)
-        if not dlg.result:
-            return
-        if dlg.result.get("new"):
-            # 未命名：直接開視窗；對話出現在清單後可再加入啟動清單
-            try:
-                launch.launch(cfg, dlg.result)
-                sid = dlg.result["session"].lower()
-                self._just_launched[sid] = time.time()
-                self.running.add(sid)
-                self.status.configure(text=tr("已開啟新對話"))
-            except Exception as e:
-                messagebox.showwarning(tr("新增對話"), tr("開啟失敗\n\n%s") % e)
-            return
-        self.items.append(dlg.result)
-        self._touch(select_last=True)
-        self.rescan()
+        if dlg.result:
+            self._new_session_done(dlg.result, cfg)
+
+    def _new_session_done(self, result, cfg):
+        """建立完成後：命名的加入啟動清單；兩種都直接開視窗。"""
+        if not result.get("new"):
+            self.items.append(result)
+            self._touch(select_last=True)
+        try:
+            launch.launch(cfg, result)
+            sid = result["session"].lower()
+            self._just_launched[sid] = time.time()
+            self.running.add(sid)
+            self.status.configure(text=tr("已開啟新對話"))
+        except Exception as e:
+            messagebox.showwarning(tr("新增對話"), tr("開啟失敗\n\n%s") % e)
+        if not result.get("new"):
+            self.rescan()
 
     # ---------------- 直接開啟 ----------------
     def open_selected(self):

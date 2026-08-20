@@ -665,6 +665,51 @@ def main():
         args2 = L.claude_args(config.load(),
                               {"session": "x" * 36, "name": "n", "cwd": "C:\\"})
         check("既有對話仍以 --resume 開啟", args2[0] == "--resume", args2[:2])
+        args3 = L.claude_args(config.load(),
+                              {"session": "x" * 36, "name": "n", "cwd": "C:\\",
+                               "model": "opus", "effort": "xhigh"})
+        check("模型與 effort 旗標帶入指令",
+              "--model" in args3 and "opus" in args3 and
+              "--effort" in args3 and "xhigh" in args3, args3)
+        check("未指定時不帶模型與 effort 旗標",
+              "--model" not in args2 and "--effort" not in args2)
+
+        # 新增對話：模型與 effort 選擇進入結果；預設＝空字串（不帶旗標）
+        dlgm = st.NewSessionDialog(root, config.load(),
+                                   os.path.expanduser("~"))
+        root.update()
+        dlgm.name.set("")
+        dlgm.model.set("opus")
+        dlgm.effort.set("xhigh")
+        dlgm.ok()
+        check("新增對話帶模型與 effort",
+              dlgm.result is not None and
+              dlgm.result.get("model") == "opus" and
+              dlgm.result.get("effort") == "xhigh",
+              dlgm.result and (dlgm.result.get("model"),
+                               dlgm.result.get("effort")))
+        check("沿用預設＝不帶旗標",
+              dlg.result.get("model") == "" and dlg.result.get("effort") == "")
+        check("effort 清單含 CLI 全部等級",
+              set(("low", "medium", "high", "xhigh", "max"))
+              <= set(st._effort_levels()), st._effort_levels())
+
+        # 按「建立」即開視窗：命名建立完成後直接 launch，不必再按立即啟動
+        real_items = app.items
+        app.items = []
+        opened.clear()
+        app._new_session_done({"name": "建立即開", "cwd": os.path.expanduser("~"),
+                               "session": "f" * 36, "model": "",
+                               "effort": ""}, config.load())
+        check("命名建立後直接開啟視窗",
+              opened == ["建立即開"] and len(app.items) == 1 and
+              ("f" * 36).lower() in app.running, opened)
+        app.items = real_items
+        app.running = set()
+        app._just_launched.pop("f" * 36, None)
+        app.fill_picked()
+        root.focus_force()      # 還焦點；後面的鍵盤事件測試需要
+        root.update()
 
         # 狀態燈：busy 顯示為橘色標籤
         # 先同步重畫再取列：清單可能還留著前面測試期間背景刷新畫上的列，

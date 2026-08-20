@@ -324,13 +324,18 @@ def claude_args(cfg, item):
     """要傳給 claude 的參數。permission_mode 空字串就沿用全域預設。
 
     item["new"] 為真時以 --session-id 開全新對話（互動視窗中建立），
-    否則以 --resume 續接既有對話。
+    否則以 --resume 續接既有對話。model 與 effort 為每個項目各自的
+    選擇，空字串沿用 Claude 自己的設定。
     """
     flag = "--session-id" if item.get("new") else "--resume"
     args = [flag, item["session"]]
     mode = item.get("permission_mode", cfg.get("permission_mode", ""))
     if mode:
         args += ["--permission-mode", mode]
+    if item.get("model"):
+        args += ["--model", item["model"]]
+    if item.get("effort"):
+        args += ["--effort", item["effort"]]
     return args
 
 

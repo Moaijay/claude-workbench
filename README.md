@@ -147,7 +147,15 @@ that folder (transcripts, tasks, file edit history, and the folder's entry in
 - **Name left empty**: opens a new window immediately, and Claude names the
   session from its contents.
 - **Name filled in**: creates the session in the background and fixes the name
-  with `/rename` (a few seconds), then adds it to the launch list.
+  with `/rename` (a few seconds), adds it to the launch list, and opens its
+  window right away — no separate "Launch now" needed.
+
+**Model and Effort** can be chosen per session in the same dialog. They are
+passed to `claude` as `--model` / `--effort` on every launch of that session;
+"(use default)" passes no flag at all, so Claude's own settings apply. The
+model box accepts an alias (`fable`, `opus`, `sonnet`) or a full model name;
+effort levels are `low` / `medium` / `high` / `xhigh` / `max`. The choice is
+stored on the launch-list entry, so later launches keep it.
 
 The folder defaults to the home directory, matching where `claude` starts when
 run from a terminal. Set `"default_cwd"` in `config.json` to change it; if
@@ -381,7 +389,7 @@ the default size is used.
 - **Cache location**: the scan cache and schema cache live in the user data
   directory, so the install folder can be read-only.
 - **Regression tests**: `python tests/regression.py` runs against a sandbox
-  copy of the config file and does not disturb a workbench in use. 99 checks,
+  copy of the config file and does not disturb a workbench in use. 105 checks,
   including the invariant that no session log is ever deleted or truncated.
   They also run on GitHub Actions (Windows, Python 3.9 and 3.13) on every
   push; checks that need an installed `claude` binary are skipped there and
