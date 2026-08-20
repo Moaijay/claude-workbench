@@ -671,7 +671,8 @@ def main():
                                for c in app.tree.get_children(pnode)][:1]}
         app.running = set(app.running_status)
         app.fill_tree()
-        root.update()
+        # 不在這裡 root.update()：泵事件會讓背景輪詢結果蓋掉手動設的狀態
+        # （fill_tree 是同步的，讀 tag 不需要泵）
         busy_row = next(iter(app.running_status))
         found_tags = ()
         for pnode in app.tree.get_children():
