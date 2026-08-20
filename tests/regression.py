@@ -645,6 +645,7 @@ def main():
             app.sessions = [s for s in app.sessions if s is not fake_info]
             os.remove(pv2)
             os.rmdir(pvdir2)
+            app.fill_tree()     # 清掉背景刷新可能畫上的假對話列
         root.focus_force()      # 還焦點；後面的鍵盤事件測試需要
         root.update()
 
@@ -666,6 +667,9 @@ def main():
         check("既有對話仍以 --resume 開啟", args2[0] == "--resume", args2[:2])
 
         # 狀態燈：busy 顯示為橘色標籤
+        # 先同步重畫再取列：清單可能還留著前面測試期間背景刷新畫上的列，
+        # 與現在的 app.sessions 不一致，取到的列會在下次重畫時消失
+        app.fill_tree()
         app.running_status = {r.lower(): "busy" for r in
                               [c for pnode in app.tree.get_children()
                                for c in app.tree.get_children(pnode)][:1]}
