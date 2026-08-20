@@ -150,12 +150,20 @@ that folder (transcripts, tasks, file edit history, and the folder's entry in
   with `/rename` (a few seconds), adds it to the launch list, and opens its
   window right away — no separate "Launch now" needed.
 
-**Model and Effort** can be chosen per session in the same dialog. They are
-passed to `claude` as `--model` / `--effort` on every launch of that session;
-"(use default)" passes no flag at all, so Claude's own settings apply. The
-model box accepts an alias (`fable`, `opus`, `sonnet`) or a full model name;
-effort levels are `low` / `medium` / `high` / `xhigh` / `max`. The choice is
-stored on the launch-list entry, so later launches keep it.
+**Model, Effort and Ultracode** can be chosen per session in the same dialog.
+Model and effort are passed to `claude` as `--model` / `--effort` on every
+launch of that session; "(use default)" passes no flag at all, so Claude's own
+settings apply. The model box accepts an alias (`fable`, `opus`, `sonnet`) or
+a full model name; effort levels are `low` / `medium` / `high` / `xhigh` /
+`max`. The choices are stored on the launch-list entry, so later launches keep
+them — and none of them touch the global defaults; every other session is
+unaffected.
+
+Ultracode is a session-scoped Claude Code setting with no flag of its own, so
+the checkbox passes `--settings` with a tiny overlay file
+(`{"ultracode": true}`) — the mechanism the setting's own description names.
+Checking it locks the Effort picker, since ultracode already implies xhigh
+effort.
 
 The folder defaults to the home directory, matching where `claude` starts when
 run from a terminal. Set `"default_cwd"` in `config.json` to change it; if
@@ -389,7 +397,7 @@ the default size is used.
 - **Cache location**: the scan cache and schema cache live in the user data
   directory, so the install folder can be read-only.
 - **Regression tests**: `python tests/regression.py` runs against a sandbox
-  copy of the config file and does not disturb a workbench in use. 105 checks,
+  copy of the config file and does not disturb a workbench in use. 111 checks,
   including the invariant that no session log is ever deleted or truncated.
   They also run on GitHub Actions (Windows, Python 3.9 and 3.13) on every
   push; checks that need an installed `claude` binary are skipped there and

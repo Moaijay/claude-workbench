@@ -106,11 +106,17 @@ Claude Code 官方沒有封存或隱藏單一對話的功能。官方的清理�
 - **填寫名稱**：背景建立並以 `/rename` 固定名稱（約數秒），加入啟動清單，
   **並直接開啟視窗**——不必再按「立即啟動」。
 
-**模型與 Effort** 可在同一個視窗裡逐條指定，之後每次開啟都以
+**模型、Effort 與 Ultracode** 可在同一個視窗裡逐條指定，之後每次開啟都以
 `--model`／`--effort` 傳給 claude；選「（沿用預設）」就完全不帶旗標，
 以 Claude 自己的設定為準。模型欄可填別名（`fable`、`opus`、`sonnet`）
 或完整模型名稱；effort 為 `low`／`medium`／`high`／`xhigh`／`max`。
-選擇存在啟動清單的該項目上，之後開啟都沿用。
+選擇存在啟動清單的該項目上，之後開啟都沿用——而且都不動全域預設，
+其他對話完全不受影響。
+
+Ultracode 是 session 級的 Claude Code 設定、沒有自己的旗標，勾選框因此改以
+`--settings` 帶一個小疊加檔（`{"ultracode": true}`）——這正是該設定自己的
+說明文件指名的管道。勾選時 Effort 下拉會鎖住，因為 ultracode 本身已含
+xhigh effort。
 
 資料夾預設為家目錄，與在終端機直接執行 `claude` 的起始位置一致；
 要改成別的，在 `config.json` 設 `"default_cwd"`，該資料夾不存在時會退回家目錄。
@@ -287,7 +293,7 @@ Claude Code 不儲存家目錄的信任狀態：
 - **備份輪替**：每次儲存前備份至 `%LOCALAPPDATA%\ClaudeWorkbench\backups`，
   各保留最近 10 份；`settings.json` 亦同。
 - **快取位置**：掃描與 schema 快取存於使用者資料目錄，安裝目錄可唯讀。
-- **回歸測試**：`python tests/regression.py`，於設定檔的沙盒副本上執行，與使用中的工作台互不干擾，105 項，含「絕不刪除或截短任何
+- **回歸測試**：`python tests/regression.py`，於設定檔的沙盒副本上執行，與使用中的工作台互不干擾，111 項，含「絕不刪除或截短任何
   對話紀錄檔」的不變量檢查。每次 push 也在 GitHub Actions 上跑
   （Windows、Python 3.9 與 3.13）；需要本機裝有 `claude` 執行檔的檢查
   在那邊明示略過，不會假裝通過。

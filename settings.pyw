@@ -219,11 +219,16 @@ class NewSessionDialog(tk.Toplevel):
         e = ttk.Entry(body, textvariable=self.name, width=46)
         e.grid(row=1, column=1, sticky="ew", padx=8)
 
-        # 模型與 effort：這個視窗自己的選擇，經 --model／--effort 傳給
-        # claude；「沿用預設」就完全不帶旗標
+        ttk.Label(body, foreground="#555555", wraplength=430, justify="left",
+                  text=tr("留空：開啟新視窗，名稱由對話內容自動產生\n"
+                          "填寫：以 /rename 固定名稱並加入啟動清單（需數秒）")).grid(
+            row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
+
+        # 模型／effort／ultracode：這個對話自己的選擇，經 --model、
+        # --effort、--settings 傳給 claude；「沿用預設」就完全不帶旗標
         self.default_label = tr("（沿用預設）")
         picks = ttk.Frame(body)
-        picks.grid(row=2, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        picks.grid(row=3, column=0, columnspan=3, sticky="w", pady=(12, 0))
         ttk.Label(picks, text=tr("模型")).pack(side="left")
         self.model = tk.StringVar(value=self.default_label)
         ttk.Combobox(picks, textvariable=self.model, width=16,
@@ -231,15 +236,14 @@ class NewSessionDialog(tk.Toplevel):
                              "sonnet"]).pack(side="left", padx=(8, 20))
         ttk.Label(picks, text="Effort").pack(side="left")
         self.effort = tk.StringVar(value=self.default_label)
-        ttk.Combobox(picks, textvariable=self.effort, width=12,
-                     state="readonly",
-                     values=[self.default_label] + _effort_levels()
-                     ).pack(side="left", padx=8)
-
-        ttk.Label(body, foreground="#555555", wraplength=430, justify="left",
-                  text=tr("留空：開啟新視窗，名稱由對話內容自動產生\n"
-                          "填寫：以 /rename 固定名稱並加入啟動清單（需數秒）")).grid(
-            row=3, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        self.effort_box = ttk.Combobox(picks, textvariable=self.effort,
+                                       width=12, state="readonly",
+                                       values=[self.default_label]
+                                       + _effort_levels())
+        self.effort_box.pack(side="left", padx=(8, 20))
+        self.ultracode = tk.BooleanVar(value=False)
+        ttk.Checkbutton(picks, text="Ultracode", variable=self.ultracode,
+                        command=self._ultracode_toggled).pack(side="left")
 
         self.hint = ttk.Label(body, foreground="#8a6a10", wraplength=430,
                               justify="left", text="")
@@ -268,6 +272,14 @@ class NewSessionDialog(tk.Toplevel):
             text=(tr("ⓘ 家目錄：每次開啟皆詢問資料夾信任")
                   if is_home(self.cwd.get().strip()) else ""))
 
+    def _ultracode_toggled(self):
+        # ultracode 已含 xhigh effort，勾選時鎖住 effort 避免互相矛盾
+        if self.ultracode.get():
+            self.effort.set(self.default_label)
+            self.effort_box.configure(state="disabled")
+        else:
+            self.effort_box.configure(state="readonly")
+
     def browse(self):
         d = filedialog.askdirectory(parent=self, title=tr("選擇資料夾"))
         if d:
@@ -291,7 +303,8 @@ class NewSessionDialog(tk.Toplevel):
             self.result = {"name": os.path.basename(cwd) or cwd, "cwd": cwd,
                            "session": str(uuid.uuid4()), "new": True,
                            "model": self._pick(self.model),
-                           "effort": self._pick(self.effort)}
+                           "effort": self._pick(self.effort),
+                           "ultracode": bool(self.ultracode.get())}
             self.destroy()
             return
         self._busy = True
@@ -325,7 +338,8 @@ class NewSessionDialog(tk.Toplevel):
             return
         self.result = {"name": name, "cwd": cwd, "session": sid,
                        "model": self._pick(self.model),
-                       "effort": self._pick(self.effort)}
+                       "effort": self._pick(self.effort),
+                       "ultracode": bool(self.ultracode.get())}
         self.destroy()
 
     def _pick(self, var):

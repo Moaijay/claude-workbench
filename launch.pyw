@@ -9,6 +9,7 @@ import time
 import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import appdata  # noqa: E402
 import applog  # noqa: E402
 import config  # noqa: E402
 from i18n import tr  # noqa: E402
@@ -336,16 +337,42 @@ def claude_args(cfg, item):
         args += ["--model", item["model"]]
     if item.get("effort"):
         args += ["--effort", item["effort"]]
+    if item.get("ultracode"):
+        args += ["--settings", ultracode_overlay()]
     return args
+
+
+def ultracode_overlay():
+    """--settings 疊加檔：只對帶上它的那次啟動開 ultracode。
+
+    ultracode 是 session 級設定，官方管道即 --settings；用檔案而非
+    行內 JSON，避免引號經過兩層殼被吃掉。
+    """
+    import json
+    path = appdata.cache_path("ultracode.json")
+    if not os.path.exists(path):
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"ultracode": True}, fh)
+    return path
+
+
+def _q(arg, shell):
+    """把含空白的參數包上該殼的引號；其餘原樣。"""
+    if " " not in arg:
+        return arg
+    if shell == "cmd":
+        return '"%s"' % arg
+    return "'%s'" % arg.replace("'", "''")
 
 
 def build_command(cfg, item):
     """視窗中執行的指令。預設使用 PowerShell。"""
     claude = cfg.get("claude") or "claude"
     keep = cfg.get("keep_open", True)
-    extra = " ".join(claude_args(cfg, item))
+    shell = cfg.get("shell", "powershell")
+    extra = " ".join(_q(a, shell) for a in claude_args(cfg, item))
 
-    if cfg.get("shell", "powershell") == "cmd":
+    if shell == "cmd":
         return ["cmd", "/k" if keep else "/c", '"%s" %s' % (claude, extra)]
 
     ps = (shutil.which("powershell")

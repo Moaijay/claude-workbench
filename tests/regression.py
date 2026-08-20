@@ -674,6 +674,22 @@ def main():
         check("未指定時不帶模型與 effort 旗標",
               "--model" not in args2 and "--effort" not in args2)
 
+        # ultracode：以 --settings 疊加檔開啟（session 級，官方管道）
+        args4 = L.claude_args(config.load(),
+                              {"session": "x" * 36, "name": "n", "cwd": "C:\\",
+                               "ultracode": True})
+        ov = L.ultracode_overlay()
+        check("ultracode 以 --settings 疊加檔帶入",
+              "--settings" in args4 and ov in args4, args4[-2:])
+        with open(ov, encoding="utf-8") as fh:
+            check("疊加檔內容正確",
+                  json.load(fh) == {"ultracode": True})
+        check("未勾選時不帶 --settings", "--settings" not in args3)
+        check("引號：含空白的參數兩種殼都包好",
+              L._q("C:\\a b\\c.json", "powershell") == "'C:\\a b\\c.json'" and
+              L._q("C:\\a b\\c.json", "cmd") == '"C:\\a b\\c.json"' and
+              L._q("plain", "powershell") == "plain")
+
         # 新增對話：模型與 effort 選擇進入結果；預設＝空字串（不帶旗標）
         dlgm = st.NewSessionDialog(root, config.load(),
                                    os.path.expanduser("~"))
@@ -693,6 +709,25 @@ def main():
         check("effort 清單含 CLI 全部等級",
               set(("low", "medium", "high", "xhigh", "max"))
               <= set(st._effort_levels()), st._effort_levels())
+
+        # ultracode 勾選：進結果、並鎖住 effort 下拉
+        dlgu = st.NewSessionDialog(root, config.load(),
+                                   os.path.expanduser("~"))
+        root.update()
+        dlgu.ultracode.set(True)
+        dlgu._ultracode_toggled()
+        eff_state = str(dlgu.effort_box.cget("state"))
+        dlgu.name.set("")
+        dlgu.ok()
+        check("ultracode 勾選進結果且鎖住 effort",
+              dlgu.result is not None and
+              dlgu.result.get("ultracode") is True and
+              dlgu.result.get("effort") == "" and eff_state == "disabled",
+              (dlgu.result and dlgu.result.get("ultracode"), eff_state))
+        check("未勾選 ultracode ＝ False",
+              dlg.result.get("ultracode") is False)
+        root.focus_force()
+        root.update()
 
         # 按「建立」即開視窗：命名建立完成後直接 launch，不必再按立即啟動
         real_items = app.items
