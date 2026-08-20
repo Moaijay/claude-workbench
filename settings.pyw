@@ -374,6 +374,8 @@ class App(ttk.Frame):
         self._q = queue.Queue()
         self._just_launched = {}   # sid -> 啟動時間；防止輪詢立刻清掉
         self._rename_guard = set() # 改名同步中的對話，暫停開啟
+        # 開啟中改名的待同步佇列；對話關閉後由輪詢自動補發 /rename
+        self.pending_renames = dict(self.cfg.get("pending_renames") or {})
         self._editing = False      # 就地編輯中，暫停畫面刷新
         self._refresh_pending = False
         self.ui = dict(DEFAULT_UI)
@@ -1009,6 +1011,7 @@ class App(ttk.Frame):
                 self.running = set(merged)
                 self.refresh_views()
                 self.update_status()
+            self._flush_pending_renames(set(merged))
 
         self.run_bg(launch.running_status, done)
 
@@ -1078,7 +1081,8 @@ class App(ttk.Frame):
         for s in self.sessions:
             if s["mtime"] < cutoff:
                 continue
-            text = sessions.label(s)
+            # 排隊中的改名先顯示新名稱；同步完成後掃描結果就是同一個名字
+            text = self.pending_renames.get(s["id"]) or sessions.label(s)
             if self.hits is not None:
                 if s["id"] not in self.hits:
                     continue
@@ -1472,6 +1476,37 @@ class App(ttk.Frame):
 
         self.run_bg(launch.rename_session, done, config.load(), item, name)
 
+    def _save_pending(self):
+        cfg = config.load()
+        cfg["pending_renames"] = self.pending_renames
+        config.save(cfg)
+
+    def _queue_rename(self, sid, name):
+        """開啟中的對話不能同步（兩個行程會寫同一個紀錄檔）：
+        先記進佇列，關閉後由輪詢補發。佇列存在設定檔，重開也不會忘。"""
+        self.pending_renames[sid] = name
+        self._save_pending()
+        self.status.configure(
+            text=tr("已改名：%s　·　對話關閉後自動同步 Claude 端") % name)
+
+    def _flush_pending_renames(self, running_now):
+        """輪詢回報後呼叫：把已關閉對話的排隊改名補同步到 Claude 端。
+
+        只發一次：先出隊再推送，失敗由狀態列回報，不無限重試。
+        """
+        for sid, name in list(self.pending_renames.items()):
+            if sid.lower() in running_now or sid.lower() in self._rename_guard:
+                continue
+            info = sessions.by_id(self.sessions).get(sid) or {}
+            cwd = info.get("cwd") or next(
+                (i["cwd"] for i in self.items if i["session"] == sid), "")
+            if not cwd or not os.path.isdir(cwd):
+                continue        # 還不知道資料夾（例如尚未掃描完），下輪再試
+            self.pending_renames.pop(sid, None)
+            self._save_pending()
+            self._push_rename({"session": sid, "cwd": cwd, "name": name},
+                              name, after=self.rescan)
+
     def rename_item(self):
         """右側：就地改視窗名稱；未開啟的對話一併同步 Claude 端名稱。"""
         picked = self._sels()
@@ -1487,8 +1522,7 @@ class App(ttk.Frame):
             self._touch()
             self.picked.selection_set(str(n))
             if item["session"].lower() in self.running:
-                self.status.configure(
-                    text=tr("已改名：%s　·　對話開啟中，Claude 端名稱未變") % name)
+                self._queue_rename(item["session"], name)
                 return
             self._push_rename(item, name)
 
@@ -1503,22 +1537,23 @@ class App(ttk.Frame):
         s = sessions.by_id(self.sessions).get(sid)
         if not s:
             return
-        if sid.lower() in self.running:
-            self.status.configure(
-                text=tr("對話開啟中；請於該視窗輸入 /rename"))
-            return
+        shown = self.pending_renames.get(sid) or sessions.label(s)
 
         def commit(name):
-            if name == sessions.label(s):
+            if name == shown:
                 return
-            item = {"session": sid, "cwd": s["cwd"], "name": name}
             for it in self.items:          # 啟動清單中的名稱一併更新
                 if it["session"] == sid:
                     it["name"] = name
                     self._touch()
-            self._push_rename(item, name, after=self.rescan)
+            if sid.lower() in self.running:
+                self._queue_rename(sid, name)
+                self.fill_tree()           # 立即顯示排隊中的新名稱
+                return
+            self._push_rename({"session": sid, "cwd": s["cwd"], "name": name},
+                              name, after=self.rescan)
 
-        self._edit_cell(self.tree, sid, sessions.label(s), commit)
+        self._edit_cell(self.tree, sid, shown, commit)
 
     def _edit_cell(self, tree, item, initial, commit):
         """開啟就地編輯；編輯期間暫停清單刷新，結束後補上。"""

@@ -805,9 +805,11 @@ def main():
                   app.items[0]["name"])
             check("未開啟的對話自動同步 Claude 端", ok5, pushed)
 
-        # 開啟中的對話：只改本地，不同步
+        # 開啟中的對話：不立即同步，改記入待同步佇列
         app.running = {"s" * 36}
         app.running_status = {"s" * 36: "idle"}
+        # 讓背景輪詢也看到「開啟中」，避免它提前把佇列沖掉
+        launch.running_status = lambda: {"s" * 36: "idle"}
         app.fill_picked()
         root.update()
         app.picked.selection_set(["0"])
@@ -823,26 +825,61 @@ def main():
             root.update()
         time.sleep(0.3)
         root.update()
-        check("開啟中改名不同步 Claude 端",
+        check("開啟中改名不立即同步",
               app.items[0]["name"] == "another" and pushed == [], pushed)
+        check("改名進入待同步佇列",
+              app.pending_renames.get("s" * 36) == "another",
+              dict(app.pending_renames))
+        saved_cfg = json.load(open(config.PATH, encoding="utf-8"))
+        check("佇列寫入設定檔",
+              saved_cfg.get("pending_renames", {}).get("s" * 36) == "another")
+
+        # 對話關閉後由輪詢補同步；只發一次
+        launch.running_status = lambda: {}
         app.running = set()
         app.running_status = {}
+        pushed.clear()
+        app._flush_pending_renames(set())
+        ok6 = wait_until(lambda: pushed == ["another"], timeout=5, root=root)
+        app._flush_pending_renames(set())
+        root.update()
+        check("對話關閉後自動補發 /rename 且只發一次",
+              ok6 and pushed == ["another"] and not app.pending_renames,
+              (pushed, dict(app.pending_renames)))
 
-        # 左側：開啟中拒絕
+        # 左側：開啟中可就地改名，進佇列並立即顯示新名稱
         rows_now = [c for pnode in app.tree.get_children()
                     for c in app.tree.get_children(pnode)]
         if rows_now:
             target_row = rows_now[0]
             app.running = {target_row.lower()}
             app.running_status = {target_row.lower(): "idle"}
+            launch.running_status = lambda: {target_row.lower(): "idle"}
+            root.focus_force()
+            root.update()
             app.tree.selection_set([target_row])
+            app.tree.focus(target_row)
             app.rename_session_title()
             root.update()
-            check("左側開啟中拒絕改名並提示 /rename",
-                  "/rename" in app.status.cget("text"),
-                  app.status.cget("text"))
+            editors2 = [w for w in app.tree.winfo_children()
+                        if isinstance(w, ttk.Entry)]
+            check("左側開啟中可就地改名", len(editors2) == 1)
+            if editors2:
+                editors2[0].delete(0, "end")
+                editors2[0].insert(0, "佇列新名")
+                editors2[0].event_generate("<Return>")
+                root.update()
+                shown_now = app.tree.item(target_row, "text")
+                check("左側開啟中改名進佇列且清單即時顯示",
+                      app.pending_renames.get(target_row) == "佇列新名" and
+                      "佇列新名" in shown_now,
+                      (app.pending_renames.get(target_row), shown_now))
+            app.pending_renames.pop(target_row, None)
+            app._save_pending()
+            launch.running_status = lambda: {}
             app.running = set()
             app.running_status = {}
+            app.fill_tree()
 
         # 改名同步中擋開啟
         app._rename_guard = {"s" * 36}

@@ -29,6 +29,8 @@ DEFAULT = {
     "items": [],
     # 已封存的對話 id；只影響清單顯示，不動對話紀錄
     "archived": [],
+    # 開啟中改名的待同步佇列 {對話 id: 新名稱}；對話關閉後自動補發 /rename
+    "pending_renames": {},
 }
 
 

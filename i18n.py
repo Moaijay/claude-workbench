@@ -130,11 +130,9 @@ EN = {
     "名稱同步中，稍候再開": "Name syncing; open again shortly",
     "同步名稱至 Claude 中…": "Syncing name to Claude…",
     "已改名：%s": "Renamed: %s",
-    "已改名：%s　·　對話開啟中，Claude 端名稱未變":
-        "Renamed: %s · session is open, the name in Claude is unchanged",
+    "已改名：%s　·　對話關閉後自動同步 Claude 端":
+        "Renamed: %s · will sync to Claude when the session closes",
     "Claude 端改名失敗：%s": "Rename in Claude failed: %s",
-    "對話開啟中；請於該視窗輸入 /rename":
-        "Session is open; run /rename in that window",
     "設定結構讀取中…": "Reading settings schema…",
     "Claude Code 設定已更新": "Claude Code settings updated",
     "工作台選項已更新": "Workbench options updated",

@@ -186,11 +186,16 @@ place: Enter confirms, Esc cancels.
 
 - **Left pane**: changes the session's name in Claude by running `/rename` in
   the background, so it is visible in the `claude -r` picker too. If that
-  session is in the launch list, the window name is updated as well. For a
-  session that is currently open, run `/rename` in its own window instead.
+  session is in the launch list, the window name is updated as well.
 - **Right pane**: changes the window name. For a session that is not open, the
-  name in Claude is synced automatically; for one that is open, only the window
-  name changes and the status bar says so.
+  name in Claude is synced automatically.
+
+**Renaming a session that is currently open** cannot sync right away — pushing
+`/rename` would mean two processes writing the same session log. Instead the
+rename is queued: the list shows the new name immediately, and once the
+session's window closes, the workbench pushes `/rename` automatically (the
+queue is stored in `config.json`, so it survives restarting the workbench).
+The status bar says "will sync to Claude when the session closes".
 
 Syncing the name in Claude is done by the official CLI and appends the rename
 records to that session's log. It is handled locally, without a model call.
@@ -397,7 +402,7 @@ the default size is used.
 - **Cache location**: the scan cache and schema cache live in the user data
   directory, so the install folder can be read-only.
 - **Regression tests**: `python tests/regression.py` runs against a sandbox
-  copy of the config file and does not disturb a workbench in use. 111 checks,
+  copy of the config file and does not disturb a workbench in use. 115 checks,
   including the invariant that no session log is ever deleted or truncated.
   They also run on GitHub Actions (Windows, Python 3.9 and 3.13) on every
   push; checks that need an installed `claude` binary are skipped there and
