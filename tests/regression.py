@@ -33,6 +33,10 @@ import sessions     # noqa: E402
 fails = []
 passed = [0]
 
+# CI 等乾淨環境沒裝 claude 執行檔；依賴它的檢查明示略過，不假裝通過
+HAVE_CLAUDE = bool(shutil.which("claude")) or os.path.exists(
+    os.path.join(os.path.expanduser("~"), ".local", "bin", "claude.exe"))
+
 
 def check(label, ok, detail=""):
     print(("  [OK] " if ok else "  [!!] ") + label +
@@ -174,6 +178,29 @@ def main():
             check("沒有建立時間時僅驗 PID",
                   launch_real._pid_alive(os.getpid()))
 
+            # running_pids：登錄項目對應到行程 pid
+            live_reg = os.path.join(launch_real.SESSIONS_DIR, "4999997.json")
+            try:
+                with open(live_reg, "w", encoding="utf-8") as fh:
+                    json.dump({"pid": os.getpid(), "procStart": str(ft[0]),
+                               "sessionId":
+                               "live0000-dead-dead-dead-deaddeaddead"}, fh)
+                pids = launch_real.running_pids()
+                check("running_pids 對應到行程",
+                      pids.get("live0000-dead-dead-dead-deaddeaddead")
+                      == os.getpid(), pids.get("live0000-dead-dead-dead-"
+                                               "deaddeaddead"))
+            finally:
+                os.remove(live_reg)
+
+            # 實機：正在跑的對話至少要有一條找得到終端機視窗
+            live_now = launch_real.running_pids()
+            if live_now:
+                n_found = sum(1 for p in set(live_now.values())
+                              if launch_real._window_candidates(p))
+                check("實機：執行中對話找得到終端機視窗", n_found >= 1,
+                      "%d/%d" % (n_found, len(set(live_now.values()))))
+
         # 脈絡使用率
         tmpdir2 = os.path.join(sessions.PROJECTS, "zz-test-ctx")
         os.makedirs(tmpdir2, exist_ok=True)
@@ -235,6 +262,62 @@ def main():
               sessions.context_window("claude-3-5-sonnet-20241022") == 200_000)
         check("脈絡視窗：Haiku 200K",
               sessions.context_window("claude-haiku-4-5") == 200_000)
+
+        # 預覽：檔尾訊息抽取
+        pvdir = os.path.join(sessions.PROJECTS, "zz-test-preview")
+        os.makedirs(pvdir, exist_ok=True)
+        pv = os.path.join(pvdir, "00000000-0000-0000-0000-0000000000p1.jsonl")
+        try:
+            recs = [
+                {"type": "system", "content": "x"},
+                {"type": "summary", "summary": "s"},
+                {"type": "user", "timestamp": "2026-08-20T04:00:00.000Z",
+                 "message": {"role": "user", "content": "第一句"}},
+                {"type": "assistant", "timestamp": "2026-08-20T04:00:05.000Z",
+                 "message": {"role": "assistant", "content": [
+                     {"type": "thinking", "thinking": "思考不顯示"},
+                     {"type": "text", "text": "回答一"}]}},
+                {"type": "assistant", "message": {"role": "assistant",
+                 "content": [{"type": "tool_use", "name": "Bash"}]}},
+                {"type": "user", "message": {"role": "user", "content": [
+                    {"type": "tool_result", "content": "工具輸出"}]}},
+                {"type": "user", "message": {"role": "user",
+                 "content": "<system-reminder>雜訊</system-reminder>"}},
+                {"type": "user", "message": {"role": "user",
+                 "content": "Caveat: 雜訊"}},
+                {"type": "user", "timestamp": "2026-08-20T04:01:00.000Z",
+                 "message": {"role": "user", "content": [
+                     {"type": "text", "text": "第二句"}]}},
+            ]
+            with open(pv, "w", encoding="utf-8") as fh:
+                fh.write("x" * (600 * 1024) + "\n")   # 撐出超過檔尾讀取範圍
+                for r in recs:
+                    fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+            msgs = sessions.tail_messages(pv)
+            check("預覽：只留實際往來、跳過工具與系統雜訊",
+                  [m["role"] for m in msgs] == ["user", "assistant", "user"],
+                  [m["role"] for m in msgs])
+            check("預覽：內容與順序",
+                  [m["text"] for m in msgs] == ["第一句", "回答一", "第二句"],
+                  [m["text"][:10] for m in msgs])
+            check("預覽：limit 取最後幾則",
+                  [m["text"] for m in sessions.tail_messages(pv, limit=1)]
+                  == ["第二句"])
+            check("預覽：時戳轉本地時間",
+                  bool(sessions.when_iso(msgs[0]["ts"])), msgs[0]["ts"])
+            with open(pv, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"type": "custom-title",
+                                     "customTitle": "標題甲"},
+                                    ensure_ascii=False) + "\n")
+                fh.write(json.dumps({"type": "ai-title",
+                                     "aiTitle": "自動乙"},
+                                    ensure_ascii=False) + "\n")
+            check("quick_title：手動命名壓過較新的自動標題",
+                  sessions.quick_title(pv) == "標題甲",
+                  sessions.quick_title(pv))
+        finally:
+            os.remove(pv)
+            os.rmdir(pvdir)
 
         # ---------- 子代理紀錄 ----------
         subproj = os.path.join(sessions.PROJECTS, "zz-test-sub")
@@ -344,20 +427,23 @@ def main():
 
         # ---------- schema 抽取 ----------
         import claudeschema
-        sch = claudeschema.load()
-        check("schema 抽取健全",
-              bool(sch.get("ok")) and
-              len(sch.get("keys") or {}) >= claudeschema.MIN_KEYS,
-              "%d 鍵" % len(sch.get("keys") or {}))
-        check("哨兵鍵在",
-              sum(1 for k in claudeschema.SENTINELS
-                  if k in (sch.get("keys") or {})) >= 2)
-        check("enum 只綁定設定鍵",
-              all(k in sch["keys"] for k in sch.get("enums") or {}) and
-              len(sch.get("enums") or {}) >= 20,
-              "%d 組" % len(sch.get("enums") or {}))
-        check("effortLevel 枚舉含 xhigh",
-              "xhigh" in (sch.get("enums") or {}).get("effortLevel", []))
+        if HAVE_CLAUDE:
+            sch = claudeschema.load()
+            check("schema 抽取健全",
+                  bool(sch.get("ok")) and
+                  len(sch.get("keys") or {}) >= claudeschema.MIN_KEYS,
+                  "%d 鍵" % len(sch.get("keys") or {}))
+            check("哨兵鍵在",
+                  sum(1 for k in claudeschema.SENTINELS
+                      if k in (sch.get("keys") or {})) >= 2)
+            check("enum 只綁定設定鍵",
+                  all(k in sch["keys"] for k in sch.get("enums") or {}) and
+                  len(sch.get("enums") or {}) >= 20,
+                  "%d 組" % len(sch.get("enums") or {}))
+            check("effortLevel 枚舉含 xhigh",
+                  "xhigh" in (sch.get("enums") or {}).get("effortLevel", []))
+        else:
+            print("  [--] 未安裝 claude，略過 schema 抽取檢查")
         check("_sane 擋空結果", not claudeschema._sane({}))
         old_cache, old_scan = claudeschema.CACHE, claudeschema._scan
         try:
@@ -469,6 +555,98 @@ def main():
                         timeout=5, root=root)
         check("開啟後記為執行中", ok)
         app.running = set()
+
+        # 右鍵選單以名字記索引，加項目不會讓 entryconfigure 指錯位置
+        check("右鍵選單索引對得上標籤",
+              app.tree_menu.entrycget(app._tm_idx["preview"],
+                                      "label") == i18n.tr("預覽") and
+              app.tree_menu.entrycget(app._tm_idx["archive"], "label")
+              in (i18n.tr("封存"), i18n.tr("取消封存")) and
+              app.picked_menu.entrycget(app._pm_idx["remove"],
+                                        "label") == i18n.tr("移除"))
+
+        # 已開啟者帶到前景，不重開
+        real_focus = launch.focus_session
+        focused_calls = []
+        launch.focus_session = (lambda sid, hints=():
+                                focused_calls.append(sid) or True)
+        try:
+            rows_all = [c for pnode in app.tree.get_children()
+                        for c in app.tree.get_children(pnode)]
+            target_sid = rows_all[0]
+            app.running = {target_sid.lower()}
+            app.running_status = {target_sid.lower(): "idle"}
+            opened.clear()
+            app.open_many([app.item_for(target_sid)], confirm=False)
+            ok = wait_until(lambda: focused_calls, timeout=5, root=root)
+            check("已開啟者帶到前景且不重開",
+                  ok and opened == [] and focused_calls == [target_sid],
+                  (opened, focused_calls))
+        finally:
+            launch.focus_session = real_focus
+            app.running = set()
+            app.running_status = {}
+
+        # 視窗候選：血緣圈選（用本行程的 Tk 視窗仿真終端機類別）
+        import ctypes
+        u32 = ctypes.windll.user32
+        w1 = tk.Toplevel(root)
+        w1.title("wbtest-視窗甲-93d1")
+        w2 = tk.Toplevel(root)
+        w2.title("wbtest-視窗乙-93d1")
+        root.update()
+        hw = u32.GetAncestor(w1.winfo_id(), 2)      # GA_ROOT
+        clsbuf = ctypes.create_unicode_buffer(64)
+        u32.GetClassNameW(hw, clsbuf, 64)
+        cands = launch._window_candidates(os.getpid(),
+                                          classes=(clsbuf.value,))
+        titles = {t for _, t in cands}
+        check("視窗候選涵蓋本行程視窗",
+              {"wbtest-視窗甲-93d1", "wbtest-視窗乙-93d1"} <= titles,
+              sorted(titles))
+        w1.destroy()
+        w2.destroy()
+        root.focus_force()      # 還焦點；後面的鍵盤事件測試需要
+        root.update()
+
+        # 預覽視窗
+        pvdir2 = os.path.join(sessions.PROJECTS, "zz-test-pvui")
+        os.makedirs(pvdir2, exist_ok=True)
+        pv2 = os.path.join(pvdir2,
+                           "00000000-0000-0000-0000-0000000000p2.jsonl")
+        fake_info = {"id": "00000000-0000-0000-0000-0000000000p2",
+                     "path": pv2, "cwd": "X", "mtime": time.time(),
+                     "cost": 1.23, "custom_title": "預覽測試", "ai_title": "",
+                     "first": "", "ctx": 0, "ctx_pct": 0.0}
+        try:
+            with open(pv2, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps({"type": "user", "message": {
+                    "role": "user", "content": "預覽測試訊息"}},
+                    ensure_ascii=False) + "\n")
+            app.sessions = app.sessions + [fake_info]
+            app.show_preview(fake_info["id"])
+            ok = wait_until(lambda: getattr(app, "_preview", None) is not None
+                            and app._preview.winfo_exists(), root=root)
+            texts = []
+
+            def walk_text(w):
+                for c in w.winfo_children():
+                    if isinstance(c, tk.Text):
+                        texts.append(c.get("1.0", "end"))
+                    walk_text(c)
+            if ok:
+                walk_text(app._preview)
+            check("預覽視窗顯示檔尾訊息",
+                  ok and any("預覽測試訊息" in t for t in texts),
+                  (texts[0][:60] if texts else ""))
+            if ok:
+                app._preview.destroy()
+        finally:
+            app.sessions = [s for s in app.sessions if s is not fake_info]
+            os.remove(pv2)
+            os.rmdir(pvdir2)
+        root.focus_force()      # 還焦點；後面的鍵盤事件測試需要
+        root.update()
 
         # 未命名新增對話
         dlg = st.NewSessionDialog(root, config.load(),
@@ -628,21 +806,24 @@ def main():
         try:
             root = tk.Tk()
             root.withdraw()
-            dlg = options.open_claude_settings(root)
-            root.update()
-            check("設定項目數", len(dlg.vars) >= 30, len(dlg.vars))
-            check("ultracode 存在", "ultracode" in dlg.vars)
-            editable = []
+            if HAVE_CLAUDE:
+                dlg = options.open_claude_settings(root)
+                root.update()
+                check("設定項目數", len(dlg.vars) >= 30, len(dlg.vars))
+                check("ultracode 存在", "ultracode" in dlg.vars)
+                editable = []
 
-            def walk(w):
-                for c in w.winfo_children():
-                    if isinstance(c, ttk.Combobox) and \
-                            str(c.cget("state")) != "readonly":
-                        editable.append(c)
-                    walk(c)
-            walk(dlg)
-            check("所有下拉唯讀", not editable)
-            dlg.destroy()
+                def walk(w):
+                    for c in w.winfo_children():
+                        if isinstance(c, ttk.Combobox) and \
+                                str(c.cget("state")) != "readonly":
+                            editable.append(c)
+                        walk(c)
+                walk(dlg)
+                check("所有下拉唯讀", not editable)
+                dlg.destroy()
+            else:
+                print("  [--] 未安裝 claude，略過 Claude 設定編輯器檢查")
 
             # 工作台選項：金額開關
             d2 = options.open_workbench_options(root, config)

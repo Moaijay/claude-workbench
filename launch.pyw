@@ -87,6 +87,24 @@ def _pid_alive(pid, proc_start=None):
         k32.CloseHandle(h)
 
 
+def _registry():
+    """執行期登錄裡通過存活驗證的項目 [(對話 id 小寫, 紀錄)]。"""
+    import glob
+    import json
+    out = []
+    for f in glob.glob(os.path.join(SESSIONS_DIR, "*.json")):
+        try:
+            with open(f, encoding="utf-8") as fh:
+                o = json.load(fh)
+        except Exception:
+            continue
+        sid, pid = o.get("sessionId"), o.get("pid")
+        if sid and isinstance(pid, int) \
+                and _pid_alive(pid, o.get("procStart")):
+            out.append((sid.lower(), o))
+    return out
+
+
 def running_status():
     """目前開著的對話 {id(小寫): 狀態}。狀態為 busy／idle，未知時為 idle。
 
@@ -95,20 +113,7 @@ def running_status():
     登錄目錄不存在時退回行程指令列比對。查詢失敗回空字典。
     """
     if os.path.isdir(SESSIONS_DIR):
-        import glob
-        import json
-        out = {}
-        for f in glob.glob(os.path.join(SESSIONS_DIR, "*.json")):
-            try:
-                with open(f, encoding="utf-8") as fh:
-                    o = json.load(fh)
-            except Exception:
-                continue
-            sid, pid = o.get("sessionId"), o.get("pid")
-            if sid and isinstance(pid, int) \
-                    and _pid_alive(pid, o.get("procStart")):
-                out[sid.lower()] = o.get("status") or "idle"
-        return out
+        return {sid: o.get("status") or "idle" for sid, o in _registry()}
     return {sid: "idle" for sid in _running_by_cmdline()}
 
 
@@ -117,20 +122,146 @@ def running_sessions():
     return set(running_status())
 
 
+def running_pids():
+    """目前開著的對話 {id(小寫): 行程 pid}。"""
+    if os.path.isdir(SESSIONS_DIR):
+        return {sid: o["pid"] for sid, o in _registry()}
+    return _running_by_cmdline()
+
+
 def _running_by_cmdline():
+    """以行程指令列比對的備援路徑：{對話 id(小寫): pid}。"""
     ps = (shutil.which("powershell")
           or os.path.join(os.environ.get("SystemRoot", r"C:\Windows"),
                           r"System32\WindowsPowerShell\v1.0\powershell.exe"))
     cmd = [ps, "-NoProfile", "-NonInteractive", "-Command",
-           '(Get-CimInstance Win32_Process -Filter "Name=\'claude.exe\'")'
-           '.CommandLine']
+           'Get-CimInstance Win32_Process -Filter "Name=\'claude.exe\'" | '
+           'ForEach-Object { "$($_.ProcessId)|$($_.CommandLine)" }']
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=20,
                            encoding="utf-8", errors="replace",
                            creationflags=CREATE_NO_WINDOW)
     except Exception:
-        return set()
-    return {m.group(1).lower() for m in RESUME_ID_RE.finditer(r.stdout or "")}
+        return {}
+    out = {}
+    for line in (r.stdout or "").splitlines():
+        pid, _, rest = line.partition("|")
+        m = RESUME_ID_RE.search(rest)
+        if m and pid.strip().isdigit():
+            out[m.group(1).lower()] = int(pid)
+    return out
+
+
+# 承載 claude 的兩種頂層視窗類別：Windows Terminal 與傳統主控台
+TERMINAL_CLASSES = ("CASCADIA_HOSTING_WINDOW_CLASS", "ConsoleWindowClass")
+
+
+def _process_parents():
+    """全機行程的 {pid: 父 pid}（Toolhelp 快照）。失敗回空字典。"""
+    import ctypes
+    from ctypes import wintypes
+
+    class Entry(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD),
+                    ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t),
+                    ("th32ModuleID", wintypes.DWORD),
+                    ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD),
+                    ("pcPriClassBase", ctypes.c_long),
+                    ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+
+    k32 = ctypes.windll.kernel32
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    snap = k32.CreateToolhelp32Snapshot(0x2, 0)   # TH32CS_SNAPPROCESS
+    if not snap or snap == ctypes.c_void_p(-1).value:
+        return {}
+    out = {}
+    try:
+        e = Entry()
+        e.dwSize = ctypes.sizeof(Entry)
+        ok = k32.Process32FirstW(snap, ctypes.byref(e))
+        while ok:
+            out[e.th32ProcessID] = e.th32ParentProcessID
+            ok = k32.Process32NextW(snap, ctypes.byref(e))
+    finally:
+        k32.CloseHandle(snap)
+    return out
+
+
+def _window_candidates(pid, classes=TERMINAL_CLASSES):
+    """可能承載該行程的可見終端機視窗 [(hwnd, 標題)]。
+
+    視窗不屬於 claude 本身：Windows Terminal 是單行程多視窗，視窗掛在
+    claude 的祖先名下；傳統主控台的視窗屬於 conhost，與 claude 是兄弟。
+    因此以血緣圈出候選，無法唯一時由呼叫端用標題分辨。
+    """
+    import ctypes
+    from ctypes import wintypes
+    parents = _process_parents()
+    chain = {pid}
+    p, hops = parents.get(pid), 0
+    while p and hops < 20 and p not in chain:
+        chain.add(p)
+        p = parents.get(p)
+        hops += 1
+    user32 = ctypes.windll.user32
+    found = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def cb(hwnd, _):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        cls = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(hwnd, cls, 64)
+        if cls.value not in classes:
+            return True
+        wpid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(wpid))
+        w = wpid.value
+        if not (w == pid or w in chain or parents.get(w) in chain):
+            return True
+        n = user32.GetWindowTextLengthW(hwnd)
+        buf = ctypes.create_unicode_buffer(n + 1)
+        user32.GetWindowTextW(hwnd, buf, n + 1)
+        found.append((hwnd, buf.value))
+        return True
+
+    user32.EnumWindows(cb, 0)
+    return found
+
+
+def focus_session(sid, hints=()):
+    """把已開啟對話的終端機視窗帶到前景。回傳是否有找到視窗。
+
+    候選多於一個（Windows Terminal 的視窗都掛在同一個行程）時以標題分辨：
+    claude 會把視窗標題設成「狀態符號＋空格＋對話標題」。分不出來就放棄，
+    寧可不動作也不把別條對話的視窗抬上來。
+    """
+    pid = running_pids().get((sid or "").lower())
+    if not pid:
+        return False
+    try:
+        cands = _window_candidates(pid)
+    except Exception:
+        return False
+    hwnd = None
+    if len(cands) == 1:
+        hwnd = cands[0][0]
+    else:
+        for hint in [h for h in hints if h]:
+            for w, title in cands:
+                if title == hint or title.endswith(" " + hint):
+                    hwnd = w
+                    break
+            if hwnd:
+                break
+    if not hwnd:
+        return False
+    singleton.focus(hwnd)
+    return True
 
 
 def clean_env():
@@ -251,11 +382,16 @@ def main():
     # 已開啟的不重複開啟：同一條對話的兩個視窗會互相覆寫紀錄檔
     already_ids = running_sessions() if cfg.get("skip_running", True) else set()
 
-    missing, already, opened = [], [], 0
+    missing, already, unfocused, opened = [], [], [], 0
     delay = max(0, int(cfg.get("stagger_ms", 700))) / 1000.0
     for n, item in enumerate(items):
         if item["session"].lower() in already_ids:
+            # 不重複開啟，改把既有視窗帶到前景；找不到視窗才留給結尾提示
             already.append(item["name"])
+            p = session_file(item)
+            hints = [item["name"]] + ([sessions.quick_title(p)] if p else [])
+            if not focus_session(item["session"], hints):
+                unfocused.append(item["name"])
             continue
         if not os.path.isdir(item["cwd"]):
             missing.append(tr("%s　資料夾不存在") % item["name"])
@@ -277,9 +413,9 @@ def main():
             note = tr("\n\n已開啟而略過：%s") % tr("、").join(already)
         alert(tr("已開啟 %d 個；下列未開啟：\n\n%s%s")
               % (opened, "\n".join(missing), note))
-    elif already and opened == 0:
-        # 全部都已開啟時仍給出回饋，避免看起來沒有反應
-        alert(tr("清單中的對話均已開啟：\n\n%s") % tr("、").join(already),
+    elif already and opened == 0 and unfocused:
+        # 帶到前景本身就是回饋；只有找不到視窗的才提示，避免看起來沒反應
+        alert(tr("清單中的對話均已開啟：\n\n%s") % tr("、").join(unfocused),
               title=tr("Claude 工作台"))
 
 

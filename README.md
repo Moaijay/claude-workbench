@@ -1,5 +1,7 @@
 # Claude Workbench
 
+[![tests](https://github.com/Moaijay/claude-workbench/actions/workflows/tests.yml/badge.svg)](https://github.com/Moaijay/claude-workbench/actions/workflows/tests.yml)
+
 English · [繁體中文](README.zh-TW.md)
 
 Opens a fixed set of Claude Code sessions, each in its own terminal window,
@@ -73,9 +75,13 @@ is the launch list; top to bottom is the order sessions open in.
 - Selecting a folder row applies the action to every session under it.
 - Opening several at once asks for confirmation, as does removing several.
   Rename and reorder handle one row at a time.
-- **Context menus**: on the left, Open / Add to launch list / Archive /
-  Rename / Move to another folder / Copy resume command. On the right,
-  Open / Rename / Move up / Move down / Remove.
+- **Preview** (right-click, or select a row and press **Space**): a read-only
+  window with the last few user/Claude messages from the end of that session's
+  log — enough to tell sessions apart without opening them. Tool calls and
+  system noise are filtered out.
+- **Context menus**: on the left, Open / Preview / Add to launch list /
+  Archive / Rename / Move to another folder / Copy resume command. On the
+  right, Open / Preview / Rename / Move up / Move down / Remove.
 - **Click the Cost, Context or Last used header to sort**, click again to
   reverse. The sort is remembered.
 - **Status dot**: green ● is open and idle, orange ● is Claude working. It
@@ -184,7 +190,9 @@ the launch list has its folder updated to match.
 ## Cost
 
 The Cost column shows the accumulated spend per session, folder rows show a
-subtotal, and the bottom of the window shows the total.
+subtotal, and the bottom of the window shows the total. All figures are
+estimates at Anthropic's public API list prices; on a subscription plan they
+are the API-equivalent value of the usage, not an actual bill.
 `View → Show cost` turns it off.
 
 How it is calculated: every reply records a `usage` block (input, output,
@@ -314,8 +322,13 @@ Detection runs every 3 seconds, and "Rescan" runs it immediately. A window
 newly started from the workbench that has not written its registry entry yet
 is protected for 15 seconds; once the entry appears, detection takes over.
 
-Sessions already open are not opened again. When the whole list is already
-open, a dialog says so rather than appearing to do nothing.
+Sessions already open are not opened again — their existing terminal windows
+are brought to the front instead. The window is located by walking the
+process ancestry (Windows Terminal keeps every window under one process, so
+candidates are then told apart by title — Claude sets each window's title to
+"status glyph + session title"). If a window cannot be identified with
+certainty, nothing is raised and a dialog reports the session as already
+open; the tool never guesses and raises the wrong window.
 
 ## What the markers mean
 
@@ -368,8 +381,11 @@ the default size is used.
 - **Cache location**: the scan cache and schema cache live in the user data
   directory, so the install folder can be read-only.
 - **Regression tests**: `python tests/regression.py` runs against a sandbox
-  copy of the config file and does not disturb a workbench in use. 88 checks,
+  copy of the config file and does not disturb a workbench in use. 99 checks,
   including the invariant that no session log is ever deleted or truncated.
+  They also run on GitHub Actions (Windows, Python 3.9 and 3.13) on every
+  push; checks that need an installed `claude` binary are skipped there and
+  reported as skipped rather than silently passed.
 
 ## Known technical pitfalls
 

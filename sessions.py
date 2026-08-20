@@ -78,6 +78,85 @@ def _first_text(msg):
     return (c or "").strip()
 
 
+def _msg_text(msg):
+    """訊息的純文字內容（保留換行）；工具呼叫、圖片等區塊略過。"""
+    c = msg.get("content", "")
+    if isinstance(c, list):
+        c = "\n".join(p.get("text", "") for p in c
+                      if isinstance(p, dict) and p.get("type") == "text")
+    return (c or "").strip()
+
+
+TAIL_BYTES = 512 * 1024     # 預覽只讀檔尾這麼多；一則訊息極少超過
+
+
+def tail_messages(path, limit=8, max_bytes=TAIL_BYTES):
+    """檔尾最後幾則實際對話訊息，舊到新：[{"role", "text", "ts"}]。
+
+    只看 user／assistant 記錄的文字區塊；工具結果、系統提醒、
+    Caveat 之類的自動內容不算訊息。
+    """
+    size = os.path.getsize(path)
+    with open(path, "rb") as fh:
+        if size > max_bytes:
+            fh.seek(size - max_bytes)
+            fh.readline()               # 丟掉被切斷的半行
+        data = fh.read()
+
+    out = []
+    for line in reversed(data.splitlines()):
+        if len(out) >= limit:
+            break
+        if b'"type"' not in line:
+            continue
+        try:
+            o = json.loads(line.decode("utf-8", "replace"))
+        except Exception:
+            continue
+        t = o.get("type")
+        if t not in ("user", "assistant"):
+            continue
+        text = _msg_text(o.get("message") or {})
+        if not text:
+            continue
+        if t == "user" and (text.startswith("<") or text.startswith("Caveat:")):
+            continue
+        out.append({"role": t, "text": text[:2000],
+                    "ts": o.get("timestamp", "") or ""})
+    out.reverse()
+    return out
+
+
+def quick_title(path):
+    """只讀檔頭與檔尾找對話標題，供不做完整掃描的呼叫端（如啟動器）。
+
+    改名是往檔尾追加 custom-title 記錄，所以檔尾的最新；檔頭作後備。
+    """
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as fh:
+            head = fh.read(256 * 1024)
+            fh.seek(max(0, size - 64 * 1024))
+            tail = fh.read()
+    except OSError:
+        return ""
+    # 手動命名永遠壓過自動標題（與 label() 一致），不論哪筆較新
+    custom = ai = ""
+    for blob in (tail, head):
+        for line in reversed(blob.splitlines()):
+            if b'"customTitle"' not in line and b'"aiTitle"' not in line:
+                continue
+            try:
+                o = json.loads(line.decode("utf-8", "replace"))
+            except Exception:
+                continue
+            custom = custom or o.get("customTitle") or ""
+            ai = ai or o.get("aiTitle") or ""
+            if custom:
+                return custom
+    return ai
+
+
 def is_real_model(model):
     """<synthetic> 之類為內部標記，不是實際模型。"""
     return bool(model) and not model.startswith("<")
@@ -400,6 +479,16 @@ def grep(needle, limit=200, progress=None):
 
 def when(ts):
     return time.strftime("%m-%d %H:%M", time.localtime(ts))
+
+
+def when_iso(ts):
+    """紀錄檔的 ISO-8601 UTC 時戳 → 本地時間顯示；解析失敗回空字串。"""
+    try:
+        import calendar
+        t = time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S")
+        return when(calendar.timegm(t))
+    except (ValueError, TypeError):
+        return ""
 
 
 def money(v):

@@ -442,30 +442,48 @@ class App(ttk.Frame):
 
     # ---------------- 右鍵選單 ----------------
     def _build_context_menus(self):
+        # 選單項目以名字記索引，插入新項目時 entryconfigure 不會指錯位置
+        def add(menu, idx, name, **kw):
+            menu.add_command(**kw)
+            idx[name] = menu.index("end")
+
         self.tree_menu = tk.Menu(self, tearoff=0)
-        self.tree_menu.add_command(label=tr("開啟"), command=self.open_from_tree)
-        self.tree_menu.add_command(label=tr("加入啟動清單"),
-                                   command=self.add_selected)
-        self.tree_menu.add_command(label=tr("封存"), command=self.toggle_archive)
-        self.tree_menu.add_command(label=tr("重新命名"), accelerator="F2",
-                                   command=self.rename_session_title)
+        self._tm_idx = {}
+        add(self.tree_menu, self._tm_idx, "open",
+            label=tr("開啟"), command=self.open_from_tree)
+        add(self.tree_menu, self._tm_idx, "preview",
+            label=tr("預覽"), accelerator="Space", command=self.show_preview)
+        add(self.tree_menu, self._tm_idx, "add",
+            label=tr("加入啟動清單"), command=self.add_selected)
+        add(self.tree_menu, self._tm_idx, "archive",
+            label=tr("封存"), command=self.toggle_archive)
+        add(self.tree_menu, self._tm_idx, "rename",
+            label=tr("重新命名"), accelerator="F2",
+            command=self.rename_session_title)
         self.tree_menu.add_separator()
-        self.tree_menu.add_command(label=tr("移至其他資料夾…"),
-                                   command=self.move_to_folder)
-        self.tree_menu.add_command(label=tr("複製 resume 指令"),
-                                   command=self.copy_resume)
+        add(self.tree_menu, self._tm_idx, "move",
+            label=tr("移至其他資料夾…"), command=self.move_to_folder)
+        add(self.tree_menu, self._tm_idx, "copy",
+            label=tr("複製 resume 指令"), command=self.copy_resume)
         self.tree.bind("<Button-3>", self._tree_context)
 
         self.picked_menu = tk.Menu(self, tearoff=0)
-        self.picked_menu.add_command(label=tr("開啟"),
-                                     command=self.open_from_picked)
-        self.picked_menu.add_command(label=tr("重新命名"), accelerator="F2",
-                                     command=self.rename_item)
+        self._pm_idx = {}
+        add(self.picked_menu, self._pm_idx, "open",
+            label=tr("開啟"), command=self.open_from_picked)
+        add(self.picked_menu, self._pm_idx, "preview",
+            label=tr("預覽"), accelerator="Space",
+            command=self.show_preview_picked)
+        add(self.picked_menu, self._pm_idx, "rename",
+            label=tr("重新命名"), accelerator="F2", command=self.rename_item)
         self.picked_menu.add_separator()
-        self.picked_menu.add_command(label=tr("上移"), command=self.move_up)
-        self.picked_menu.add_command(label=tr("下移"), command=self.move_down)
+        add(self.picked_menu, self._pm_idx, "up",
+            label=tr("上移"), command=self.move_up)
+        add(self.picked_menu, self._pm_idx, "down",
+            label=tr("下移"), command=self.move_down)
         self.picked_menu.add_separator()
-        self.picked_menu.add_command(label=tr("移除"), command=self.remove_item)
+        add(self.picked_menu, self._pm_idx, "remove",
+            label=tr("移除"), command=self.remove_item)
         self.picked.bind("<Button-3>", self._picked_context)
 
     def _context_select(self, tree, event):
@@ -481,19 +499,20 @@ class App(ttk.Frame):
         picked = self.selected_sessions()
         label = (tr("取消封存") if picked and
                  all(s in self.archived for s in picked) else tr("封存"))
-        self.tree_menu.entryconfigure(2, label=label)
-        for idx in (3, 5, 6):     # 重新命名、移至其他資料夾、複製 resume 指令
+        self.tree_menu.entryconfigure(self._tm_idx["archive"], label=label)
+        for key in ("preview", "rename", "move", "copy"):
             self.tree_menu.entryconfigure(
-                idx, state="normal" if len(picked) == 1 else "disabled")
+                self._tm_idx[key],
+                state="normal" if len(picked) == 1 else "disabled")
         self.tree_menu.tk_popup(event.x_root, event.y_root)
 
     def _picked_context(self, event):
         if not self._context_select(self.picked, event):
             return
         single = len(self._sels()) == 1
-        for idx in (1, 3, 4):     # 重新命名、上移、下移
+        for key in ("preview", "rename", "up", "down"):
             self.picked_menu.entryconfigure(
-                idx, state="normal" if single else "disabled")
+                self._pm_idx[key], state="normal" if single else "disabled")
         self.picked_menu.tk_popup(event.x_root, event.y_root)
 
     def move_to_folder(self):
@@ -536,6 +555,86 @@ class App(ttk.Frame):
         self.clipboard_clear()
         self.clipboard_append(cmd)
         self.status.configure(text=tr("已複製 resume 指令"))
+
+    # ---------------- 預覽 ----------------
+    def show_preview(self, sid=None):
+        """看選取對話檔尾的最後幾則往來，不必開視窗。"""
+        if sid is None:
+            picked = self.selected_sessions()
+            if len(picked) != 1:
+                return
+            sid = picked[0]
+        info = sessions.by_id(self.sessions).get(sid) or {}
+        path = info.get("path") or sessions.find_file(sid)
+        if not path or not os.path.exists(path):
+            self.status.configure(text=tr("找不到對話紀錄：%s") % sid[:8])
+            return
+
+        def done(msgs, err):
+            if err is not None or msgs is None:
+                self.status.configure(text=tr("預覽失敗，詳見錯誤記錄檔"))
+                return
+            self._show_preview_window(sid, info, msgs)
+
+        self.run_bg(sessions.tail_messages, done, path)
+
+    def show_preview_picked(self):
+        sels = self._sels()
+        if len(sels) == 1:
+            self.show_preview(self.items[sels[0]]["session"])
+
+    def _show_preview_window(self, sid, info, msgs):
+        w = getattr(self, "_preview", None)
+        if not (w and w.winfo_exists()):
+            scale = screen_dpi() / 96.0
+            w = self._preview = tk.Toplevel(self.winfo_toplevel())
+            set_icon(w)
+            w.geometry("%dx%d" % (int(560 * scale), int(540 * scale)))
+            w.bind("<Escape>", lambda _: w.destroy())
+        for c in w.winfo_children():
+            c.destroy()
+        w.title(tr("預覽 — %s") % (sessions.label(info) if info else sid[:8]))
+
+        head = ttk.Frame(w, padding=(14, 10, 14, 0))
+        head.pack(fill="x")
+        if info.get("cwd"):
+            ttk.Label(head, text=info["cwd"],
+                      foreground="#555555").pack(anchor="w")
+        bits = [b for b in (sessions.money(info.get("cost", 0)),
+                            sessions.when(info["mtime"])
+                            if info.get("mtime") else "") if b]
+        if bits:
+            ttk.Label(head, text=tr("　·　").join(bits),
+                      foreground="#555555").pack(anchor="w")
+
+        body = ttk.Frame(w, padding=(14, 8, 14, 12))
+        body.pack(fill="both", expand=True)
+        txt = tk.Text(body, wrap="word", relief="flat", padx=10, pady=8,
+                      font=(UI_FAM, UI_SIZE), background="#fafafa")
+        sb = ttk.Scrollbar(body, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=sb.set)
+        txt.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        txt.tag_configure("me", font=(UI_FAM, UI_SIZE, "bold"),
+                          foreground="#0b5394")
+        txt.tag_configure("claude", font=(UI_FAM, UI_SIZE, "bold"),
+                          foreground="#8a4b00")
+        txt.tag_configure("dim", foreground="#8c8c8c")
+        if not msgs:
+            txt.insert("end", tr("（檔尾沒有可顯示的訊息）"), "dim")
+        for m in msgs:
+            role_me = m["role"] == "user"
+            txt.insert("end", tr("我") if role_me else "Claude",
+                       "me" if role_me else "claude")
+            ts = sessions.when_iso(m.get("ts", ""))
+            if ts:
+                txt.insert("end", "　" + ts, "dim")
+            txt.insert("end", "\n" + m["text"] + "\n\n")
+        txt.configure(state="disabled")
+        txt.see("end")
+        w.deiconify()
+        w.lift()
+        w.focus_set()
 
     # ---------------- 介面 ----------------
     def _build(self):
@@ -592,6 +691,7 @@ class App(ttk.Frame):
         self.tree.bind("<Return>", lambda _: self.open_from_tree())
         self.tree.bind("<Control-a>", self._select_all_tree)
         self.tree.bind("<F2>", lambda _: self.rename_session_title())
+        self.tree.bind("<space>", lambda _: self.show_preview() or "break")
         self.tree.bind("<Configure>", self.fit_columns)
 
         # 中：加入與封存
@@ -631,6 +731,8 @@ class App(ttk.Frame):
         self.picked.bind("<Delete>", lambda _: self.remove_item())
         self.picked.bind("<Control-a>", self._select_all_picked)
         self.picked.bind("<F2>", lambda _: self.rename_item())
+        self.picked.bind("<space>",
+                         lambda _: self.show_preview_picked() or "break")
 
         tools = ttk.Frame(right)
         tools.grid(row=1, column=0, sticky="w", pady=(10, 0))
@@ -823,7 +925,7 @@ class App(ttk.Frame):
             if live:
                 bits.append(tr("執行中 %d") % live)
         self.status.configure(text=tr("　·　").join(bits))
-        text = tr("累計 %s（估算）") % sessions.money(total)
+        text = tr("累計 %s（API 牌價估算）") % sessions.money(total)
         unknown = sorted({m for s in self.sessions
                           for m in s.get("unpriced", [])})
         if unknown:
@@ -1079,7 +1181,7 @@ class App(ttk.Frame):
             self.fill_picked()
             self.status.configure(text=tr("啟動清單已改指到接續"))
         quiet = len(targets) > 1
-        todo, skipped = [], []
+        todo, skipped, focus_q = [], [], []
         for t in targets:
             if not os.path.isdir(t["cwd"]):
                 skipped.append(tr("%s　資料夾不存在") % t["name"])
@@ -1097,22 +1199,42 @@ class App(ttk.Frame):
                     self.status.configure(text=tr("名稱同步中，稍候再開"))
             elif cfg.get("skip_running", True) and \
                     t["session"].lower() in self.running:
-                skipped.append(tr("%s　已開啟") % t["name"])
-                if not quiet:
-                    self.status.configure(text=tr("已開啟：%s") % t["name"])
+                # 不重複開啟，改把既有視窗帶到前景
+                focus_q.append(t)
             else:
                 todo.append(t)
-        if not todo:
+        if not todo and not focus_q:
             if quiet and skipped:
                 messagebox.showinfo(tr("Claude 工作台"),
                                     tr("未開啟：\n\n%s") % "\n".join(skipped))
             return
 
         self._launching = True
-        self.status.configure(text=tr("開啟中…"))
+        if todo:
+            self.status.configure(text=tr("開啟中…"))
 
         def worker():
-            opened = 0
+            opened = fronted = 0
+            index = sessions.by_id(self.sessions)
+            for t in focus_q:
+                info = index.get(t["session"]) or {}
+                ok = False
+                try:
+                    ok = launch.focus_session(
+                        t["session"],
+                        [t["name"], sessions.label(info) if info else ""])
+                except Exception:
+                    pass
+                if ok:
+                    fronted += 1
+                    if not quiet:
+                        self._post(lambda nm=t["name"]: self.status.configure(
+                            text=tr("已帶到前景：%s") % nm))
+                else:
+                    skipped.append(tr("%s　已開啟") % t["name"])
+                    if not quiet:
+                        self._post(lambda nm=t["name"]: self.status.configure(
+                            text=tr("已開啟：%s") % nm))
             for n, item in enumerate(todo):
                 try:
                     launch.launch(cfg, item)
@@ -1135,11 +1257,17 @@ class App(ttk.Frame):
 
             def finish():
                 self._launching = False
-                if len(todo) > 1 or skipped:
+                if quiet:
                     bits = [tr("已開啟 %d／%d") % (opened, len(targets))]
+                    if fronted:
+                        bits.append(tr("帶到前景 %d") % fronted)
                     if skipped:
                         bits.append(tr("略過 %d") % len(skipped))
                     self.status.configure(text=tr("　·　").join(bits))
+                    if not todo and skipped and not fronted:
+                        messagebox.showinfo(tr("Claude 工作台"),
+                                            tr("未開啟：\n\n%s")
+                                            % "\n".join(skipped))
                 self.refresh_views()
                 self.update_status()
             self._post(finish)
