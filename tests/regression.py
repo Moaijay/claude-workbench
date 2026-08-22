@@ -125,17 +125,41 @@ def main():
             os.remove(tmp)
             os.rmdir(tmpdir)
 
-        # 交接誤報：同資料夾多條鏈
+        # 交接判定：只認摘要明指的前身，不再用同資料夾＋時間推測
         fake = [
-            {"id": "aaa", "cwd": "X", "mtime": 100.0, "ctime": 100.0,
-             "handoff": False},
-            {"id": "hand", "cwd": "X", "mtime": 900.0, "ctime": 500.0,
-             "handoff": True},
+            {"id": "aaa", "cwd": "X", "handoff": False, "handoff_from": ""},
+            {"id": "hand", "cwd": "X", "handoff": True,
+             "handoff_from": "aaa"},
+            # 交接前恰好停用的無關對話——時間啟發式時代的誤判受害者
+            {"id": "quiet", "cwd": "X", "handoff": False, "handoff_from": ""},
         ]
-        check("接續警告：交接後仍活躍的鏈不誤報",
-              sessions.newer_handoff(fake, "X", 850.0) is None)
-        check("接續警告：被交接的鏈仍會警告",
-              sessions.newer_handoff(fake, "X", 480.0) is not None)
+        hm = sessions.handoff_map(fake)
+        check("交接只認明指的前身",
+              hm.get("aaa", {}).get("id") == "hand", hm.keys())
+        check("同資料夾的無關舊對話不誤判", "quiet" not in hm and len(hm) == 1)
+        check("前身不存在時不建立連結",
+              not sessions.handoff_map(
+                  [{"id": "h", "handoff": True, "handoff_from": "gone"}]))
+        # read_one 從交接摘要抽出前身 id
+        hodir = os.path.join(sessions.PROJECTS, "zz-test-hofrom")
+        os.makedirs(hodir, exist_ok=True)
+        old_id = "00000000-0000-0000-0000-0000000000d1"
+        hof = os.path.join(hodir, "00000000-0000-0000-0000-0000000000d2.jsonl")
+        try:
+            summary = ("This session is being continued from a previous "
+                       "conversation that ran out of context. read the full "
+                       "transcript at: C:\\x\\" + old_id + ".jsonl")
+            with open(hof, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps({"type": "user", "cwd": "X", "message": {
+                    "role": "user", "content": summary}},
+                    ensure_ascii=False) + "\n")
+            hi = sessions.read_one(hof)
+            check("交接摘要抽出前身 id",
+                  hi["handoff"] and hi["handoff_from"] == old_id,
+                  hi["handoff_from"])
+        finally:
+            os.remove(hof)
+            os.rmdir(hodir)
 
         # 執行中偵測：官方執行期登錄（用替換前的原函式測）
         import launch as launch_real
@@ -541,14 +565,17 @@ def main():
         real_app_sessions = app.sessions
         app.sessions = [
             {"id": "a1", "cwd": "X", "mtime": 100.0, "ctime": 50.0,
-             "handoff": False, "cost": 0.0, "ctx": 0, "ctx_pct": 0.0,
-             "custom_title": "同名", "ai_title": "", "first": ""},
+             "handoff": False, "handoff_from": "", "cost": 0.0, "ctx": 0,
+             "ctx_pct": 0.0, "custom_title": "同名", "ai_title": "",
+             "first": ""},
             {"id": "h1", "cwd": "X", "mtime": 500.0, "ctime": 150.0,
-             "handoff": True, "cost": 0.0, "ctx": 0, "ctx_pct": 0.0,
-             "custom_title": "同名", "ai_title": "", "first": ""},
+             "handoff": True, "handoff_from": "a1", "cost": 0.0, "ctx": 0,
+             "ctx_pct": 0.0, "custom_title": "同名", "ai_title": "",
+             "first": ""},
             {"id": "h2", "cwd": "X", "mtime": 900.0, "ctime": 550.0,
-             "handoff": True, "cost": 0.0, "ctx": 0, "ctx_pct": 0.0,
-             "custom_title": "同名", "ai_title": "", "first": ""},
+             "handoff": True, "handoff_from": "h1", "cost": 0.0, "ctx": 0,
+             "ctx_pct": 0.0, "custom_title": "同名", "ai_title": "",
+             "first": ""},
         ]
         try:
             ho = app._handoff_target("a1")

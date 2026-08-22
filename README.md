@@ -365,7 +365,9 @@ open; the tool never guesses and raises the wrong window.
   would appear — the old one is therefore **hidden by default**; tick
   "Show handed-off" in the left pane's header to see it greyed and
   suffixed. Full-text search hits always show it (the history only exists
-  in the old file).
+  in the old file). Detection matches the **predecessor session id named
+  explicitly in the handoff summary** — no folder/time guessing, so
+  unrelated old sessions in the same folder are never misjudged.
   **Launch-list entries re-point themselves to the newest session in the
   chain automatically**; nothing to do by hand.
 - **⚠ newer continuation exists** (right pane) — a transient marker; the
@@ -413,7 +415,7 @@ the default size is used.
 - **Cache location**: the scan cache and schema cache live in the user data
   directory, so the install folder can be read-only.
 - **Regression tests**: `python tests/regression.py` runs against a sandbox
-  copy of the config file and does not disturb a workbench in use. 125 checks,
+  copy of the config file and does not disturb a workbench in use. 127 checks,
   including the invariant that no session log is ever deleted or truncated.
   They also run on GitHub Actions (Windows, Python 3.9 and 3.13) on every
   push; checks that need an installed `claude` binary are skipped there and

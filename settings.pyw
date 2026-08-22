@@ -1095,10 +1095,8 @@ class App(ttk.Frame):
         desc = bool(self.ui["sort_desc"])
         self.hidden = 0
         groups = {}
-        # 被壓縮交接取代的對話：名稱與接續的那條一樣，要標出來才分得開
-        superseded = {s["id"] for s in self.sessions
-                      if s["mtime"] >= cutoff and sessions.newer_handoff(
-                          self.sessions, s["cwd"], s["mtime"])}
+        # 被壓縮交接取代的對話（以摘要明指的前身 id 精確配對）
+        superseded = set(sessions.handoff_map(self.sessions))
         show_handed = bool(self.v_handed.get())
         for s in self.sessions:
             if s["mtime"] < cutoff:
@@ -1160,6 +1158,7 @@ class App(ttk.Frame):
     def fill_picked(self):
         self.picked.delete(*self.picked.get_children())
         index = sessions.by_id(self.sessions)
+        ho_map = sessions.handoff_map(self.sessions)
         for n, item in enumerate(self.items):
             s = index.get(item["session"])
             tags = ()
@@ -1170,8 +1169,7 @@ class App(ttk.Frame):
                 name = RUN_MARK + name
             if s is None and not sessions.find_file(item["session"]):
                 tags, name = ("stale",), item["name"] + tr("  ⚠ 找不到")
-            elif s is not None and sessions.newer_handoff(
-                    self.sessions, s["cwd"], s["mtime"]):
+            elif s is not None and s["id"] in ho_map:
                 tags, name = ("stale",), item["name"] + tr("  ⚠ 有更新的接續")
             elif not tags and is_home(item["cwd"]):
                 tags, name = ("note",), name + tr("  ⓘ 每次會問信任")
@@ -1223,15 +1221,13 @@ class App(ttk.Frame):
 
     def _handoff_target(self, sid):
         """這條對話被壓縮交接過時，回傳鏈上最新的那條；否則回 None。"""
-        info = sessions.by_id(self.sessions).get(sid)
-        if not info:
-            return None
-        ho = sessions.newer_handoff(self.sessions, info["cwd"], info["mtime"])
+        ho_map = sessions.handoff_map(self.sessions)
+        ho = ho_map.get(sid)
         if not ho:
             return None
-        seen = {info["id"], ho["id"]}
+        seen = {sid, ho["id"]}
         while True:
-            nxt = sessions.newer_handoff(self.sessions, ho["cwd"], ho["mtime"])
+            nxt = ho_map.get(ho["id"])
             if not nxt or nxt["id"] in seen:
                 return ho
             seen.add(nxt["id"])

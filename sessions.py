@@ -11,7 +11,26 @@ from i18n import tr
 
 PROJECTS = os.path.join(os.path.expanduser("~"), ".claude", "projects")
 CACHE = appdata.cache_path("scan-cache.json")
-CACHE_VERSION = 5           # 格式改了就把舊快取作廢
+CACHE_VERSION = 6           # 格式改了就把舊快取作廢
+
+UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+                     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+
+def _handoff_source(text, own_id):
+    """交接摘要裡明指的前身對話 id；找不到回空字串。
+
+    摘要末尾固定附上前一份逐字稿的路徑（…<id>.jsonl），優先取它；
+    沒有路徑時退而取內文第一個非自身的 uuid。
+    """
+    m = re.search(r"transcript\s+at:\s*\S*?(%s)\.jsonl" % UUID_RE.pattern,
+                  text)
+    if m:
+        return m.group(1).lower()
+    for u in UUID_RE.findall(text):
+        if u.lower() != own_id.lower():
+            return u.lower()
+    return ""
 
 # 脈絡視窗大小（token）。目前世代預設 1M；Haiku 與 4.6 之前的舊世代為 200K。
 CONTEXT_WINDOW = {
@@ -200,6 +219,7 @@ def read_one(path):
         "ai_title": "",
         "first": "",
         "handoff": False,
+        "handoff_from": "",     # 交接摘要明指的前身對話 id
         "cost": 0.0,
         "turns": 0,
     }
@@ -260,6 +280,8 @@ def read_one(path):
                 info["first"] = " ".join(c.split())[:120]
                 info["handoff"] = info["first"].startswith(
                     "This session is being continued")
+                if info["handoff"]:
+                    info["handoff_from"] = _handoff_source(c, info["id"])
             if info["cwd"] and info["first"]:
                 meta_done = True
 
@@ -384,22 +406,20 @@ def by_id(sessions):
     return {s["id"]: s for s in sessions}
 
 
-HANDOFF_MARGIN = 300        # 秒；容許壓縮交接前後的寫入時間差
+def handoff_map(sessions):
+    """{被交接的舊對話 id: 接續它的那條}。
 
-
-def newer_handoff(sessions, cwd, mtime):
-    """同一個資料夾裡，是否有接續「這條」對話的較新交接。
-
-    同資料夾可能有多條互不相關的對話鏈：若這條在交接檔建立之後仍持續活動，
-    該交接屬於別條鏈，不視為取代。
+    只認交接摘要裡明指的前身 id（摘要末尾固定附上前一份逐字稿的路徑）。
+    不用「同資料夾＋時間相近」推測——那會把交接前恰好停用的無關對話
+    全部誤判成已交接。配不到明確前身就不判定：寧可多顯示，絕不誤藏。
     """
+    by = {s["id"]: s for s in sessions}
+    out = {}
     for s in sessions:
-        if s["cwd"] != cwd or not s["handoff"] or s["mtime"] <= mtime:
-            continue
-        born = s.get("ctime") or s["mtime"]
-        if mtime <= born + HANDOFF_MARGIN:
-            return s
-    return None
+        src = (s.get("handoff_from") or "").lower()
+        if src and src != s["id"].lower() and src in by:
+            out[src] = s
+    return out
 
 
 def find_file(session_id):
