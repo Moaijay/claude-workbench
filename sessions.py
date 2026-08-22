@@ -11,7 +11,7 @@ from i18n import tr
 
 PROJECTS = os.path.join(os.path.expanduser("~"), ".claude", "projects")
 CACHE = appdata.cache_path("scan-cache.json")
-CACHE_VERSION = 4           # 格式改了就把舊快取作廢
+CACHE_VERSION = 5           # 格式改了就把舊快取作廢
 
 # 脈絡視窗大小（token）。目前世代預設 1M；Haiku 與 4.6 之前的舊世代為 200K。
 CONTEXT_WINDOW = {
@@ -225,6 +225,20 @@ def read_one(path):
                             order.append(mid)
                         usage_by_id[mid] = (m["usage"], m.get("model"))
 
+            # 標題不受檔頭窗口限制：改名記錄往檔尾追加，長對話的改名
+            # 全落在窗口外。整檔都看、最後一筆為準（反正整檔本來就要讀）。
+            if '"customTitle"' in line or '"aiTitle"' in line:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    o = None
+                if o:
+                    t = o.get("type")
+                    if t == "custom-title" and o.get("customTitle"):
+                        info["custom_title"] = o["customTitle"]
+                    elif t == "ai-title" and o.get("aiTitle"):
+                        info["ai_title"] = o["aiTitle"]
+
             if meta_done:
                 continue
             if i > META_LINES or read_bytes > META_BYTES:
@@ -239,18 +253,14 @@ def read_one(path):
             if not info["cwd"]:
                 info["cwd"] = o.get("cwd", "") or ""
             t = o.get("type")
-            if t == "custom-title":
-                info["custom_title"] = o.get("customTitle", "") or ""
-            elif t == "ai-title":
-                info["ai_title"] = o.get("aiTitle", "") or ""
-            elif t == "user" and not info["first"]:
+            if t == "user" and not info["first"]:
                 c = _first_text(o.get("message", {}))
                 if not c or c.startswith("<") or c.startswith("Caveat:"):
                     continue
                 info["first"] = " ".join(c.split())[:120]
                 info["handoff"] = info["first"].startswith(
                     "This session is being continued")
-            if info["cwd"] and info["first"] and info["custom_title"]:
+            if info["cwd"] and info["first"]:
                 meta_done = True
 
     info["cost"] = sum(_usage_cost(*usage_by_id[k]) for k in order)

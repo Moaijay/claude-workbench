@@ -319,6 +319,41 @@ def main():
             os.remove(pv)
             os.rmdir(pvdir)
 
+        # 標題掃描不受檔頭窗口限制：長對話的改名記錄在檔尾也要抓到
+        ttdir = os.path.join(sessions.PROJECTS, "zz-test-title")
+        os.makedirs(ttdir, exist_ok=True)
+        tt = os.path.join(ttdir, "00000000-0000-0000-0000-0000000000t1.jsonl")
+        try:
+            with open(tt, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps({"type": "ai-title", "cwd": "X",
+                                     "aiTitle": "遠古自動標題"},
+                                    ensure_ascii=False) + "\n")
+                fh.write(json.dumps({"type": "user", "message": {
+                    "role": "user", "content": "第一句"}},
+                    ensure_ascii=False) + "\n")
+                # 內文含 "customTitle" 字樣的誘餌，不得被誤認成改名記錄
+                fh.write(json.dumps({"type": "user", "message": {
+                    "role": "user",
+                    "content": 'we discussed "customTitle" and "aiTitle"'}},
+                    ensure_ascii=False) + "\n")
+                fh.write("x" * (5 * 1024 * 1024) + "\n")   # 超出檔頭窗口
+                fh.write(json.dumps({"type": "custom-title",
+                                     "customTitle": "改名一"},
+                                    ensure_ascii=False) + "\n")
+                fh.write(json.dumps({"type": "custom-title",
+                                     "customTitle": "改名二"},
+                                    ensure_ascii=False) + "\n")
+            ti = sessions.read_one(tt)
+            check("檔尾改名記錄抓得到且最後一筆為準",
+                  ti["custom_title"] == "改名二" and
+                  sessions.label(ti) == "改名二",
+                  (ti["custom_title"], ti["ai_title"]))
+            check("內文誘餌不影響標題", ti["ai_title"] == "遠古自動標題",
+                  ti["ai_title"])
+        finally:
+            os.remove(tt)
+            os.rmdir(ttdir)
+
         # ---------- 子代理紀錄 ----------
         subproj = os.path.join(sessions.PROJECTS, "zz-test-sub")
         sid_b = "00000000-0000-0000-0000-0000000000b1"
@@ -397,8 +432,10 @@ def main():
         check("running_status 回傳字典", isinstance(st_map, dict),
               type(st_map))
         if st_map:
-            check("狀態值為 busy/idle",
-                  all(v in ("busy", "idle") for v in st_map.values()),
+            # 官方狀態值會長新的（已見過 busy/idle/shell），只驗型別不驗清單；
+            # 介面把非 busy 一律視為開著，不依賴完整枚舉
+            check("狀態值為非空字串",
+                  all(isinstance(v, str) and v for v in st_map.values()),
                   set(st_map.values()))
 
         # 版本比較
