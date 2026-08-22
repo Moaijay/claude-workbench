@@ -78,6 +78,7 @@ EN = {
     "  ⚠ 找不到": "  ⚠ missing",
     "  ⚠ 有更新的接續": "  ⚠ newer continuation exists",
     "　（已交接）": " (handed off)",
+    "顯示已交接": "Show handed-off",
     "啟動清單已改指到接續：%s":
         "Launch list now follows the continuation: %s",
     "「%s」已在某個視窗中開啟，但找不到那個視窗；請於工作列尋找。":

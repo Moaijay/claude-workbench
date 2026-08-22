@@ -580,20 +580,36 @@ def main():
             cfg_r["pending_renames"] = real_pending2
             config.save(cfg_r)
 
-            # 左側清單：被交接的舊對話標灰、加（已交接）後綴
+            # 左側清單：被交接的舊對話預設隱藏；開關打開才顯示（灰＋後綴）
             ro_was = bool(app.recent_only.get())
             app.recent_only.set(False)
+            app.v_handed.set(False)
+            app.fill_tree()
+            rows0 = [r for pnode in app.tree.get_children()
+                     for r in app.tree.get_children(pnode)]
+            check("已交接的預設隱藏、接續仍在",
+                  "a1" not in rows0 and "h1" not in rows0 and "h2" in rows0,
+                  rows0)
+            app.v_handed.set(True)
             app.fill_tree()
             texts = {r: app.tree.item(r, "text")
                      for pnode in app.tree.get_children()
                      for r in app.tree.get_children(pnode)}
-            check("舊對話標示（已交接）、接續不標",
+            check("開關打開後顯示且標（已交接）、接續不標",
                   "（已交接）" in texts.get("a1", "") and
                   "（已交接）" in texts.get("h1", "") and
                   "（已交接）" not in texts.get("h2", ""),
                   {k: v for k, v in texts.items() if k in ("a1", "h1", "h2")})
             check("（已交接）帶灰色標籤",
                   "superseded" in app.tree.item("a1", "tags"))
+            # 全文搜尋命中時，隱藏中的舊對話仍要出現（歷史只存在舊檔）
+            app.v_handed.set(False)
+            app.hits = {"a1": 2}
+            app.fill_tree()
+            rows1 = [r for pnode in app.tree.get_children()
+                     for r in app.tree.get_children(pnode)]
+            check("搜尋命中的已交接對話仍顯示", "a1" in rows1, rows1)
+            app.hits = None
             app.recent_only.set(ro_was)
         finally:
             app.sessions = real_app_sessions
@@ -622,9 +638,11 @@ def main():
 
         # 批次開啟走背景執行緒
         in_list = {i["session"] for i in app.items}
+        idx_all = sessions.by_id(app.sessions)
         free = [r for r in [c for p in app.tree.get_children()
                             for c in app.tree.get_children(p)]
-                if r not in in_list][:3]
+                if r not in in_list and
+                os.path.isdir(idx_all.get(r, {}).get("cwd", ""))][:3]
         app.tree.selection_set(free)
         opened.clear()
         answers["yes"] = True
@@ -644,6 +662,8 @@ def main():
               in (i18n.tr("封存"), i18n.tr("取消封存")) and
               app.picked_menu.entrycget(app._pm_idx["remove"],
                                         "label") == i18n.tr("移除"))
+        check("左側 Delete 鍵綁定封存切換",
+              bool(app.tree.bind("<Delete>")))
 
         # 已開啟者帶到前景，不重開
         real_focus = launch.focus_session

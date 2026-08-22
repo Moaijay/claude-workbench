@@ -50,6 +50,7 @@ DEFAULT_UI = {
     "show_context": True,
     "fulltext": False,
     "show_archived": False,
+    "show_superseded": False,   # 顯示被壓縮交接取代的舊對話
     "sort_key": "mtime",      # mtime | cost
     "sort_desc": True,
 }
@@ -464,9 +465,10 @@ class App(ttk.Frame):
                           command=self.on_fulltext_toggle)
         m.add_checkbutton(label=tr("只看最近 30 天"), variable=self.recent_only,
                           command=self.fill_tree)
-        self.v_arch = tk.BooleanVar(value=bool(self.ui["show_archived"]))
         m.add_checkbutton(label=tr("顯示已封存"), variable=self.v_arch,
                           command=self.on_archived_toggle)
+        m.add_checkbutton(label=tr("顯示已交接"), variable=self.v_handed,
+                          command=self.on_superseded_toggle)
         bar.add_cascade(label=tr("檢視"), menu=m)
 
         m = tk.Menu(bar, tearoff=0)
@@ -509,7 +511,7 @@ class App(ttk.Frame):
         add(self.tree_menu, self._tm_idx, "add",
             label=tr("加入啟動清單"), command=self.add_selected)
         add(self.tree_menu, self._tm_idx, "archive",
-            label=tr("封存"), command=self.toggle_archive)
+            label=tr("封存"), accelerator="Del", command=self.toggle_archive)
         add(self.tree_menu, self._tm_idx, "rename",
             label=tr("重新命名"), accelerator="F2",
             command=self.rename_session_title)
@@ -695,6 +697,9 @@ class App(ttk.Frame):
         self.columnconfigure(2, weight=2)
         self.rowconfigure(1, weight=1)
         self.recent_only = tk.BooleanVar(value=bool(self.ui["recent_only"]))
+        self.v_arch = tk.BooleanVar(value=bool(self.ui["show_archived"]))
+        self.v_handed = tk.BooleanVar(
+            value=bool(self.ui["show_superseded"]))
 
         bar = ttk.Frame(self)
         bar.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 12))
@@ -710,8 +715,16 @@ class App(ttk.Frame):
         self.status = ttk.Label(bar, text="", foreground="#555555")
         self.status.pack(side="right")
 
-        # 左：全機對話
-        left = ttk.LabelFrame(self, text=tr("電腦上所有對話"), padding=10)
+        # 左：全機對話。標題列直接放顯示開關，還原封存不必翻選單
+        head = ttk.Frame(self)
+        ttk.Label(head, text=tr("電腦上所有對話")).pack(side="left")
+        ttk.Checkbutton(head, text=tr("顯示已封存"), variable=self.v_arch,
+                        command=self.on_archived_toggle).pack(
+            side="left", padx=(14, 0))
+        ttk.Checkbutton(head, text=tr("顯示已交接"), variable=self.v_handed,
+                        command=self.on_superseded_toggle).pack(
+            side="left", padx=(8, 0))
+        left = ttk.LabelFrame(self, labelwidget=head, padding=10)
         left.grid(row=1, column=0, sticky="nsew")
         left.rowconfigure(0, weight=1)
         left.columnconfigure(0, weight=1)
@@ -746,6 +759,7 @@ class App(ttk.Frame):
         self.tree.bind("<Control-a>", self._select_all_tree)
         self.tree.bind("<F2>", lambda _: self.rename_session_title())
         self.tree.bind("<space>", lambda _: self.show_preview() or "break")
+        self.tree.bind("<Delete>", lambda _: self.toggle_archive())
         self.tree.bind("<Configure>", self.fit_columns)
 
         # 中：加入與封存
@@ -907,6 +921,7 @@ class App(ttk.Frame):
         ui["show_context"] = bool(self.v_ctx.get())
         ui["fulltext"] = bool(self.v_full.get())
         ui["show_archived"] = bool(self.v_arch.get())
+        ui["show_superseded"] = bool(self.v_handed.get())
         ui["zoomed"] = top.state() == "zoomed"
         if not ui["zoomed"]:
             ui["geometry"] = top.winfo_geometry()
@@ -1084,8 +1099,14 @@ class App(ttk.Frame):
         superseded = {s["id"] for s in self.sessions
                       if s["mtime"] >= cutoff and sessions.newer_handoff(
                           self.sessions, s["cwd"], s["mtime"])}
+        show_handed = bool(self.v_handed.get())
         for s in self.sessions:
             if s["mtime"] < cutoff:
+                continue
+            # 被交接的舊對話預設隱藏；全文搜尋命中時仍顯示——
+            # 歷史內容只存在舊檔裡，不能讓搜尋漏掉
+            if s["id"] in superseded and not show_handed \
+                    and self.hits is None:
                 continue
             # 排隊中的改名先顯示新名稱；同步完成後掃描結果就是同一個名字
             text = self.pending_renames.get(s["id"]) or sessions.label(s)
@@ -1421,6 +1442,10 @@ class App(ttk.Frame):
 
     def on_archived_toggle(self):
         self.ui["show_archived"] = bool(self.v_arch.get())
+        self.fill_tree()
+
+    def on_superseded_toggle(self):
+        self.ui["show_superseded"] = bool(self.v_handed.get())
         self.fill_tree()
 
     def add_selected(self):

@@ -97,7 +97,7 @@ is the launch list; top to bottom is the order sessions open in.
 | Menu | Contents |
 |---|---|
 | **File** | New session… (Ctrl+N) / Add from resume command… / Save (Ctrl+S) / Exit |
-| **View** | Show cost / Show context usage / Search session contents / Last 30 days only / Show archived |
+| **View** | Show cost / Show context usage / Search session contents / Last 30 days only / Show archived / Show handed-off |
 | **Tools** | Claude Code settings… (Ctrl+,) / Workbench options… / Open at startup / Program folder / Error log |
 | **Help** | Check for updates / About |
 
@@ -120,9 +120,12 @@ corrupt-config notice and the crash dialog — are translated as well.
 
 ## Archiving
 
-Finished sessions can be folded away. Select them and press "Archive" and they
-leave the list; `View → Show archived` brings them back, greyed out and marked
-"(archived)", and "Unarchive" restores them.
+Finished sessions can be folded away. Select them and press "Archive" (or
+the **Delete** key) and they leave the list.
+To restore: tick "**Show archived**" in the left pane's header, select the
+greyed rows and press "Unarchive" (or Delete) — the toggle sits right next
+to the list, no menu digging; the same item in the `View` menu stays in
+sync with it.
 
 **Archiving only records the session id in `config.json`. No session log is
 touched.** It is reversible at any time.
@@ -359,7 +362,10 @@ open; the tool never guesses and raises the wrong window.
   Claude Code performed a compaction handoff: the conversation was condensed
   into a summary and continued in a **new session file**, keeping the old one
   as history. The title carries over, so two identically-named sessions
-  appear — the old one is greyed and suffixed so they can be told apart.
+  would appear — the old one is therefore **hidden by default**; tick
+  "Show handed-off" in the left pane's header to see it greyed and
+  suffixed. Full-text search hits always show it (the history only exists
+  in the old file).
   **Launch-list entries re-point themselves to the newest session in the
   chain automatically**; nothing to do by hand.
 - **⚠ newer continuation exists** (right pane) — a transient marker; the
@@ -407,7 +413,7 @@ the default size is used.
 - **Cache location**: the scan cache and schema cache live in the user data
   directory, so the install folder can be read-only.
 - **Regression tests**: `python tests/regression.py` runs against a sandbox
-  copy of the config file and does not disturb a workbench in use. 122 checks,
+  copy of the config file and does not disturb a workbench in use. 125 checks,
   including the invariant that no session log is ever deleted or truncated.
   They also run on GitHub Actions (Windows, Python 3.9 and 3.13) on every
   push; checks that need an installed `claude` binary are skipped there and
