@@ -452,9 +452,9 @@ def main():
                                        "已是最新版本（v%s）")))
         check("交接與掃描字串的翻譯齊全",
               all(k in _i.EN for k in
-                  ("有更新的接續", "開啟進行中，稍候",
-                   "啟動清單已改指到接續", "掃描失敗，沿用上次結果（%s）",
-                   "「%s」已交接到較新的對話。\n\n改開較新的那條？")))
+                  ("　（已交接）", "開啟進行中，稍候",
+                   "啟動清單已改指到接續：%s", "掃描失敗，沿用上次結果（%s）",
+                   "「%s」已在某個視窗中開啟，但找不到那個視窗；請於工作列尋找。")))
 
         # 快取位置
         check("掃描快取在資料目錄",
@@ -541,11 +541,14 @@ def main():
         real_app_sessions = app.sessions
         app.sessions = [
             {"id": "a1", "cwd": "X", "mtime": 100.0, "ctime": 50.0,
-             "handoff": False},
+             "handoff": False, "cost": 0.0, "ctx": 0, "ctx_pct": 0.0,
+             "custom_title": "同名", "ai_title": "", "first": ""},
             {"id": "h1", "cwd": "X", "mtime": 500.0, "ctime": 150.0,
-             "handoff": True},
+             "handoff": True, "cost": 0.0, "ctx": 0, "ctx_pct": 0.0,
+             "custom_title": "同名", "ai_title": "", "first": ""},
             {"id": "h2", "cwd": "X", "mtime": 900.0, "ctime": 550.0,
-             "handoff": True},
+             "handoff": True, "cost": 0.0, "ctx": 0, "ctx_pct": 0.0,
+             "custom_title": "同名", "ai_title": "", "first": ""},
         ]
         try:
             ho = app._handoff_target("a1")
@@ -553,8 +556,48 @@ def main():
                   ho and ho["id"])
             check("沒被交接的不改指", app._handoff_target("h2") is None)
             check("不明對話不改指", app._handoff_target("zzz") is None)
+
+            # 啟動清單自動跟鏈，不再逐次詢問；排隊改名一併跟過去
+            real_items2 = app.items
+            real_pending2 = dict(app.pending_renames)
+            app.items = [{"name": "跟鏈", "cwd": "X", "session": "a1"}]
+            app.pending_renames = {"a1": "新名"}
+            moved = app._auto_repoint()
+            check("啟動清單自動跟到鏈上最新",
+                  app.items[0]["session"] == "h2" and moved == ["跟鏈"],
+                  app.items[0]["session"])
+            check("排隊改名跟著交接走",
+                  app.pending_renames.get("h2") == "新名" and
+                  "a1" not in app.pending_renames,
+                  dict(app.pending_renames))
+            saved2 = json.load(open(config.PATH, encoding="utf-8"))
+            check("自動改指寫入設定檔",
+                  saved2.get("items", [{}])[0].get("session") == "h2")
+            app.items = real_items2
+            app.pending_renames = real_pending2
+            cfg_r = config.load()
+            cfg_r["items"] = real_items2
+            cfg_r["pending_renames"] = real_pending2
+            config.save(cfg_r)
+
+            # 左側清單：被交接的舊對話標灰、加（已交接）後綴
+            ro_was = bool(app.recent_only.get())
+            app.recent_only.set(False)
+            app.fill_tree()
+            texts = {r: app.tree.item(r, "text")
+                     for pnode in app.tree.get_children()
+                     for r in app.tree.get_children(pnode)}
+            check("舊對話標示（已交接）、接續不標",
+                  "（已交接）" in texts.get("a1", "") and
+                  "（已交接）" in texts.get("h1", "") and
+                  "（已交接）" not in texts.get("h2", ""),
+                  {k: v for k, v in texts.items() if k in ("a1", "h1", "h2")})
+            check("（已交接）帶灰色標籤",
+                  "superseded" in app.tree.item("a1", "tags"))
+            app.recent_only.set(ro_was)
         finally:
             app.sessions = real_app_sessions
+            app.fill_tree()
         check("四條測試對話已封存", len(app.archived) >= 4,
               str(len(app.archived)))
 

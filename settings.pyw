@@ -734,6 +734,7 @@ class App(ttk.Frame):
                          stretch=False, anchor="center")
         self.tree.tag_configure("folder", font=(UI_FAM, UI_SIZE, "bold"))
         self.tree.tag_configure("archived", foreground="#8c8c8c")
+        self.tree.tag_configure("superseded", foreground="#8c8c8c")
         self.tree.tag_configure("running", foreground="#0b6a0b")
         self.tree.tag_configure("busy", foreground="#c25400")
         self.tree.grid(row=0, column=0, sticky="nsew")
@@ -939,6 +940,7 @@ class App(ttk.Frame):
                 self.status.configure(text=tr("掃描失敗，詳見錯誤記錄檔"))
                 return
             self.sessions = result
+            self._auto_repoint()
             self.apply_columns()
             self.refresh_views()
             self.update_status()
@@ -1078,11 +1080,17 @@ class App(ttk.Frame):
         desc = bool(self.ui["sort_desc"])
         self.hidden = 0
         groups = {}
+        # 被壓縮交接取代的對話：名稱與接續的那條一樣，要標出來才分得開
+        superseded = {s["id"] for s in self.sessions
+                      if s["mtime"] >= cutoff and sessions.newer_handoff(
+                          self.sessions, s["cwd"], s["mtime"])}
         for s in self.sessions:
             if s["mtime"] < cutoff:
                 continue
             # 排隊中的改名先顯示新名稱；同步完成後掃描結果就是同一個名字
             text = self.pending_renames.get(s["id"]) or sessions.label(s)
+            if s["id"] in superseded:
+                text += tr("　（已交接）")
             if self.hits is not None:
                 if s["id"] not in self.hits:
                     continue
@@ -1118,6 +1126,8 @@ class App(ttk.Frame):
                     tags.append("busy")
                 elif status:
                     tags.append("running")
+                elif s["id"] in superseded:
+                    tags.append("superseded")
                 self.tree.insert("F:" + cwd, "end", iid=s["id"],
                                  text="   " + text,
                                  values=(sessions.money(s["cost"]),
@@ -1206,6 +1216,31 @@ class App(ttk.Frame):
             seen.add(nxt["id"])
             ho = nxt
 
+    def _auto_repoint(self):
+        """啟動清單自動跟著交接鏈走到最新，不逐次詢問。
+
+        壓縮交接會開新的對話檔，舊檔只是歷史；清單項目指著舊 id 沒有任何
+        使用情境，直接改指。排隊中的改名也一併跟過去（要改的是活著的那條）。
+        """
+        changed = []
+        for it in self.items:
+            ho = self._handoff_target(it.get("session"))
+            if not ho:
+                continue
+            if it["session"] in self.pending_renames:
+                self.pending_renames[ho["id"]] = \
+                    self.pending_renames.pop(it["session"])
+            it["session"] = ho["id"]
+            changed.append(it["name"])
+        if changed:
+            cfg = config.load()
+            cfg["items"] = self.items
+            cfg["pending_renames"] = self.pending_renames
+            config.save(cfg)
+            self.status.configure(
+                text=tr("啟動清單已改指到接續：%s") % tr("、").join(changed))
+        return changed
+
     def open_many(self, targets, confirm=True):
         """驗證與確認在主執行緒；實際開窗與間隔在背景執行緒。"""
         targets = [t for t in targets if t]
@@ -1218,25 +1253,6 @@ class App(ttk.Frame):
                 tr("開啟"), tr("開啟 %d 條對話？") % len(targets)):
             return
         cfg = config.load()
-        repointed = False
-        for t in targets:
-            ho = self._handoff_target(t["session"])
-            if not ho or not messagebox.askyesno(
-                    tr("有更新的接續"),
-                    tr("「%s」已交接到較新的對話。\n\n改開較新的那條？")
-                    % t["name"]):
-                continue
-            old_id = t["session"]
-            for it in self.items:
-                if it.get("session") == old_id:
-                    it["session"] = ho["id"]
-                    repointed = True
-            t["session"] = ho["id"]
-        if repointed:
-            cfg["items"] = self.items
-            config.save(cfg)
-            self.fill_picked()
-            self.status.configure(text=tr("啟動清單已改指到接續"))
         quiet = len(targets) > 1
         todo, skipped, focus_q = [], [], []
         for t in targets:
@@ -1290,8 +1306,11 @@ class App(ttk.Frame):
                 else:
                     skipped.append(tr("%s　已開啟") % t["name"])
                     if not quiet:
-                        self._post(lambda nm=t["name"]: self.status.configure(
-                            text=tr("已開啟：%s") % nm))
+                        # 只在狀態列講會被忽略；用訊息框明說
+                        self._post(lambda nm=t["name"]: messagebox.showinfo(
+                            tr("Claude 工作台"),
+                            tr("「%s」已在某個視窗中開啟，但找不到那個視窗；"
+                               "請於工作列尋找。") % nm))
             for n, item in enumerate(todo):
                 try:
                     launch.launch(cfg, item)

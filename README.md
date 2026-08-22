@@ -355,10 +355,15 @@ open; the tool never guesses and raises the wrong window.
 
 - **⚠ missing** — that session's log no longer exists. Remove the row and pick
   another.
-- **⚠ newer continuation exists** — the same folder contains a newer session
-  created by a compaction handoff. Long sessions are compacted automatically
-  and usually keep the same session id; when the id did change, pick the newer
-  session instead.
+- **(handed off)** (left pane, grey) — when a session's context filled up,
+  Claude Code performed a compaction handoff: the conversation was condensed
+  into a summary and continued in a **new session file**, keeping the old one
+  as history. The title carries over, so two identically-named sessions
+  appear — the old one is greyed and suffixed so they can be told apart.
+  **Launch-list entries re-point themselves to the newest session in the
+  chain automatically**; nothing to do by hand.
+- **⚠ newer continuation exists** (right pane) — a transient marker; the
+  entry re-points itself on the next scan, so it is rarely seen.
 - **ⓘ trust asked every time** — that session lives in the home directory.
 
 ## Why the home directory asks for Trust Folder every time
@@ -402,7 +407,7 @@ the default size is used.
 - **Cache location**: the scan cache and schema cache live in the user data
   directory, so the install folder can be read-only.
 - **Regression tests**: `python tests/regression.py` runs against a sandbox
-  copy of the config file and does not disturb a workbench in use. 117 checks,
+  copy of the config file and does not disturb a workbench in use. 122 checks,
   including the invariant that no session log is ever deleted or truncated.
   They also run on GitHub Actions (Windows, Python 3.9 and 3.13) on every
   push; checks that need an installed `claude` binary are skipped there and
