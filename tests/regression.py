@@ -288,6 +288,14 @@ def main():
               abs(sessions._usage_cost(
                   {"cache_read_input_tokens": 1_000_000},
                   "claude-fable-5-1") - 0.25) < 1e-6)
+        check("帶日期字尾的模型 id 折回主名查價",
+              sessions._price_key("claude-haiku-4-5-20251001")
+              == "claude-haiku-4-5" and
+              abs(sessions._usage_cost({"input_tokens": 1_000_000,
+                                        "output_tokens": 1_000_000},
+                                       "claude-haiku-4-5-20251001")
+                  - 6.0) < 1e-6 and
+              sessions._price_key("claude-nonexistent-9-20991231") is None)
         check("其他模型快取讀取仍 0.1 倍",
               abs(sessions._usage_cost(
                   {"cache_read_input_tokens": 1_000_000},

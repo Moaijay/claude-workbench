@@ -11,7 +11,7 @@ from i18n import tr
 
 PROJECTS = os.path.join(os.path.expanduser("~"), ".claude", "projects")
 CACHE = appdata.cache_path("scan-cache.json")
-CACHE_VERSION = 7           # 格式改了就把舊快取作廢
+CACHE_VERSION = 8           # 格式改了就把舊快取作廢
 
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
                      r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -70,6 +70,18 @@ PRICING = {
 }
 DEFAULT_PRICE = (5.0, 25.0)
 CACHE_READ_RATE = 0.1       # 快取讀取＝輸入價的 0.1 倍
+
+# 有些模型以帶日期的完整 id 記錄（如 claude-haiku-4-5-20251001）；
+# 查價時折回主名，免得同一顆模型因 id 寫法不同被當成無費率
+_DATED_RE = re.compile(r"-20\d{6}$")
+
+
+def _price_key(model):
+    """模型 id 對應費率表的鍵；帶日期字尾的折回主名，查無回 None。"""
+    if model in PRICING:
+        return model
+    base = _DATED_RE.sub("", model or "")
+    return base if base in PRICING else None
 # 例外：Fable/Mythos 5.1 世代快取讀取降為 0.025 倍（$0.25/M）
 CACHE_READ_OVERRIDE = {
     "claude-fable-5-1": 0.025,
@@ -192,7 +204,9 @@ def is_real_model(model):
 def _usage_cost(usage, model):
     if not is_real_model(model):
         return 0.0
-    pin, pout = PRICING.get(model, DEFAULT_PRICE)
+    key = _price_key(model)
+    pin, pout = PRICING[key] if key else DEFAULT_PRICE
+    model = key or model
     if usage.get("speed") == "fast":
         pin, pout = pin * FAST_RATE, pout * FAST_RATE
     created = usage.get("cache_creation") or {}
@@ -298,7 +312,7 @@ def read_one(path):
     info["turns"] = len(order)
     # 記錄尚無費率資料的模型，供介面標示
     info["unpriced"] = sorted({m for _, m in usage_by_id.values()
-                               if is_real_model(m) and m not in PRICING})
+                               if is_real_model(m) and _price_key(m) is None})
     # 脈絡使用率：最後一則回覆的 prompt 大小 ÷ 該模型的脈絡視窗
     info["ctx"] = 0
     info["ctx_pct"] = 0.0

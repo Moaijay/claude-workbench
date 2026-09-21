@@ -305,7 +305,7 @@ Claude Code 不儲存家目錄的信任狀態：
 - **備份輪替**：每次儲存前備份至 `%LOCALAPPDATA%\ClaudeWorkbench\backups`，
   各保留最近 10 份；`settings.json` 亦同。
 - **快取位置**：掃描與 schema 快取存於使用者資料目錄，安裝目錄可唯讀。
-- **回歸測試**：`python tests/regression.py`，於設定檔的沙盒副本上執行，與使用中的工作台互不干擾，131 項，含「絕不刪除或截短任何
+- **回歸測試**：`python tests/regression.py`，於設定檔的沙盒副本上執行，與使用中的工作台互不干擾，132 項，含「絕不刪除或截短任何
   對話紀錄檔」的不變量檢查。每次 push 也在 GitHub Actions 上跑
   （Windows、Python 3.9 與 3.13）；需要本機裝有 `claude` 執行檔的檢查
   在那邊明示略過，不會假裝通過。
