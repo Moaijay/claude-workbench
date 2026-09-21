@@ -11,7 +11,7 @@ from i18n import tr
 
 PROJECTS = os.path.join(os.path.expanduser("~"), ".claude", "projects")
 CACHE = appdata.cache_path("scan-cache.json")
-CACHE_VERSION = 6           # 格式改了就把舊快取作廢
+CACHE_VERSION = 7           # 格式改了就把舊快取作廢
 
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
                      r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -53,20 +53,28 @@ MIN_SIZE = 20 * 1024        # 小於此大小視為沒有實際內容的空對�
 META_LINES = 3000           # 找開頭訊息／標題最多看幾行
 META_BYTES = 4 * 1024 * 1024
 
-# 每百萬 token 的（輸入, 輸出）美元。取自 Anthropic 公開定價。
+# 每百萬 token 的（輸入, 輸出）美元。取自 Anthropic 公開定價（2026-09-21 對過）。
 PRICING = {
+    "claude-fable-5-1": (10.0, 50.0),
+    "claude-mythos-5-1": (10.0, 50.0),
+    "claude-fable-5": (10.0, 50.0),
+    "claude-mythos-5": (10.0, 50.0),
     "claude-opus-5": (5.0, 25.0),
     "claude-opus-4-8": (5.0, 25.0),
     "claude-opus-4-7": (5.0, 25.0),
     "claude-opus-4-6": (5.0, 25.0),
-    "claude-fable-5": (10.0, 50.0),
-    "claude-mythos-5": (10.0, 50.0),
-    "claude-sonnet-5": (3.0, 15.0),
+    # Sonnet 5 上市價 $2/$10 已成為正式價（原定 2026-09-01 調回 $3/$15 取消）
+    "claude-sonnet-5": (2.0, 10.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
 }
 DEFAULT_PRICE = (5.0, 25.0)
 CACHE_READ_RATE = 0.1       # 快取讀取＝輸入價的 0.1 倍
+# 例外：Fable/Mythos 5.1 世代快取讀取降為 0.025 倍（$0.25/M）
+CACHE_READ_OVERRIDE = {
+    "claude-fable-5-1": 0.025,
+    "claude-mythos-5-1": 0.025,
+}
 CACHE_WRITE_5M = 1.25       # 5 分鐘快取寫入＝1.25 倍
 CACHE_WRITE_1H = 2.0        # 1 小時快取寫入＝2 倍
 FAST_RATE = 2.0             # fast mode＝標準費率的 2 倍（usage.speed == "fast"）
@@ -194,10 +202,11 @@ def _usage_cost(usage, model):
         w5m = max(0, usage.get("cache_creation_input_tokens", 0) - w1h)
     tools = usage.get("server_tool_use") or {}
     searches = tools.get("web_search_requests", 0) or 0
+    cr = CACHE_READ_OVERRIDE.get(model, CACHE_READ_RATE)
     return (usage.get("input_tokens", 0) * pin
             + w5m * pin * CACHE_WRITE_5M
             + w1h * pin * CACHE_WRITE_1H
-            + usage.get("cache_read_input_tokens", 0) * pin * CACHE_READ_RATE
+            + usage.get("cache_read_input_tokens", 0) * pin * cr
             + usage.get("output_tokens", 0) * pout) / 1_000_000 \
         + searches * WEB_SEARCH_USD
 

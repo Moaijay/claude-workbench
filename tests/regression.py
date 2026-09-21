@@ -276,9 +276,30 @@ def main():
                     os.rmdir(d)
             os.rmdir(target)
 
+        # 費率（2026-09-21 依官方價目表對過）
+        check("Fable 5.1 有費率資料",
+              "claude-fable-5-1" in sessions.PRICING and
+              sessions.PRICING["claude-fable-5-1"] == (10.0, 50.0))
+        check("Sonnet 5 費率為正式價 2/10",
+              abs(sessions._usage_cost({"input_tokens": 1_000_000,
+                                        "output_tokens": 1_000_000},
+                                       "claude-sonnet-5") - 12.0) < 1e-6)
+        check("Fable 5.1 快取讀取 0.025 倍",
+              abs(sessions._usage_cost(
+                  {"cache_read_input_tokens": 1_000_000},
+                  "claude-fable-5-1") - 0.25) < 1e-6)
+        check("其他模型快取讀取仍 0.1 倍",
+              abs(sessions._usage_cost(
+                  {"cache_read_input_tokens": 1_000_000},
+                  "claude-opus-5") - 0.5) < 1e-6 and
+              abs(sessions._usage_cost(
+                  {"cache_read_input_tokens": 1_000_000},
+                  "claude-fable-5") - 1.0) < 1e-6)
+
         # 脈絡視窗依模型世代
         check("脈絡視窗：新世代 1M",
               sessions.context_window("claude-opus-5") == 1_000_000 and
+              sessions.context_window("claude-fable-5-1") == 1_000_000 and
               sessions.context_window("claude-sonnet-4-6") == 1_000_000)
         check("脈絡視窗：舊世代 200K",
               sessions.context_window("claude-opus-4-5") == 200_000 and

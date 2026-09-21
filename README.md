@@ -221,12 +221,14 @@ are the API-equivalent value of the usage, not an actual bill.
 
 How it is calculated: every reply records a `usage` block (input, output,
 cache write and cache read token counts) and the model in use, converted at
-Anthropic's published rates. Cache reads are the input rate ×0.1, 5-minute
-cache writes ×1.25, 1-hour cache writes ×2.
+Anthropic's published rates. Cache reads are the input rate ×0.1 (×0.025 on
+the Fable/Mythos 5.1 generation), 5-minute cache writes ×1.25, 1-hour cache
+writes ×2.
 
 Fast mode (×2 rate, detected from `usage.speed`) and web search ($10 per
-thousand) are included. The 1M long-context premium is not, so long-context
-sessions can be underestimated.
+thousand) are included. Current-generation models (Claude 4.6 onward) bill
+the full 1M context window at standard rates, so there is no long-context
+premium to account for.
 
 **These are estimates.** A subscription is not billed per session; the number
 is for comparing how much went into each one. Measured against the official
@@ -415,7 +417,7 @@ the default size is used.
 - **Cache location**: the scan cache and schema cache live in the user data
   directory, so the install folder can be read-only.
 - **Regression tests**: `python tests/regression.py` runs against a sandbox
-  copy of the config file and does not disturb a workbench in use. 127 checks,
+  copy of the config file and does not disturb a workbench in use. 131 checks,
   including the invariant that no session log is ever deleted or truncated.
   They also run on GitHub Actions (Windows, Python 3.9 and 3.13) on every
   push; checks that need an installed `claude` binary are skipped there and
