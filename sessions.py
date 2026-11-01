@@ -11,7 +11,7 @@ from i18n import tr
 
 PROJECTS = os.path.join(os.path.expanduser("~"), ".claude", "projects")
 CACHE = appdata.cache_path("scan-cache.json")
-CACHE_VERSION = 8           # 格式改了就把舊快取作廢
+CACHE_VERSION = 9           # 格式改了就把舊快取作廢
 
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
                      r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -36,7 +36,8 @@ def _handoff_source(text, own_id):
 CONTEXT_WINDOW = {
     "claude-haiku-4-5": 200_000,
 }
-LEGACY_200K = ("claude-3-", "claude-haiku-", "claude-opus-4-1",
+# Haiku 5.5 起也是 1M，所以只列 Haiku 4 以前的前綴
+LEGACY_200K = ("claude-3-", "claude-haiku-4-", "claude-opus-4-1",
                "claude-opus-4-2025", "claude-opus-4-5",
                "claude-sonnet-4-2025", "claude-sonnet-4-5")
 DEFAULT_WINDOW = 1_000_000
@@ -53,39 +54,52 @@ MIN_SIZE = 20 * 1024        # 小於此大小視為沒有實際內容的空對�
 META_LINES = 3000           # 找開頭訊息／標題最多看幾行
 META_BYTES = 4 * 1024 * 1024
 
-# 每百萬 token 的（輸入, 輸出）美元。取自 Anthropic 公開定價（2026-09-21 對過）。
+# 每百萬 token 的（輸入, 輸出）美元。取自 Anthropic 公開定價（2026-11-01 對過）。
 PRICING = {
     "claude-fable-5-1": (10.0, 50.0),
     "claude-mythos-5-1": (10.0, 50.0),
     "claude-fable-5": (10.0, 50.0),
     "claude-mythos-5": (10.0, 50.0),
+    "claude-opus-5-5": (4.0, 20.0),
     "claude-opus-5": (5.0, 25.0),
     "claude-opus-4-8": (5.0, 25.0),
     "claude-opus-4-7": (5.0, 25.0),
     "claude-opus-4-6": (5.0, 25.0),
     # Sonnet 5 上市價 $2/$10 已成為正式價（原定 2026-09-01 調回 $3/$15 取消）
+    "claude-sonnet-5-5": (2.0, 10.0),
     "claude-sonnet-5": (2.0, 10.0),
     "claude-sonnet-4-6": (3.0, 15.0),
+    # Haiku 5.5 分兩段計價：prompt 在 10 萬 token 以內為此價，超過見 LONG_PROMPT
+    "claude-haiku-5-5": (0.10, 0.50),
     "claude-haiku-4-5": (1.0, 5.0),
+}
+# prompt（輸入＋快取讀寫）超過門檻時整則改用另一組價：{模型: (門檻, (輸入, 輸出))}
+LONG_PROMPT = {
+    "claude-haiku-5-5": (100_000, (0.50, 2.50)),
 }
 DEFAULT_PRICE = (5.0, 25.0)
 CACHE_READ_RATE = 0.1       # 快取讀取＝輸入價的 0.1 倍
 
-# 有些模型以帶日期的完整 id 記錄（如 claude-haiku-4-5-20251001）；
-# 查價時折回主名，免得同一顆模型因 id 寫法不同被當成無費率
-_DATED_RE = re.compile(r"-20\d{6}$")
+# 有些模型以帶日期的完整 id 記錄（如 claude-haiku-4-5-20251001），
+# 或帶 [1m] 之類的脈絡標記；查價時折回主名，免得同一顆模型因 id
+# 寫法不同被當成無費率
+_DATED_RE = re.compile(r"(-20\d{6})?(\[[^\]]*\])?$")
 
 
 def _price_key(model):
-    """模型 id 對應費率表的鍵；帶日期字尾的折回主名，查無回 None。"""
+    """模型 id 對應費率表的鍵；帶日期或 [1m] 字尾的折回主名，查無回 None。"""
     if model in PRICING:
         return model
     base = _DATED_RE.sub("", model or "")
     return base if base in PRICING else None
-# 例外：Fable/Mythos 5.1 世代快取讀取降為 0.025 倍（$0.25/M）
+
+
+# 快取讀取不是 0.1 倍的例外：
+#   Fable/Mythos 5.1 為 $0.25/M（0.025 倍）；Opus 5.5 為 $0.20/M（0.05 倍）
 CACHE_READ_OVERRIDE = {
     "claude-fable-5-1": 0.025,
     "claude-mythos-5-1": 0.025,
+    "claude-opus-5-5": 0.05,
 }
 CACHE_WRITE_5M = 1.25       # 5 分鐘快取寫入＝1.25 倍
 CACHE_WRITE_1H = 2.0        # 1 小時快取寫入＝2 倍
@@ -207,6 +221,13 @@ def _usage_cost(usage, model):
     key = _price_key(model)
     pin, pout = PRICING[key] if key else DEFAULT_PRICE
     model = key or model
+    if model in LONG_PROMPT:
+        limit, long_price = LONG_PROMPT[model]
+        prompt = (usage.get("input_tokens", 0)
+                  + usage.get("cache_read_input_tokens", 0)
+                  + usage.get("cache_creation_input_tokens", 0))
+        if prompt > limit:
+            pin, pout = long_price
     if usage.get("speed") == "fast":
         pin, pout = pin * FAST_RATE, pout * FAST_RATE
     created = usage.get("cache_creation") or {}
@@ -225,10 +246,31 @@ def _usage_cost(usage, model):
         + searches * WEB_SEARCH_USD
 
 
+def _iso_ms(ts):
+    """紀錄檔的 ISO-8601 UTC 時戳 → 毫秒；解析失敗回 None。"""
+    if not ts or len(ts) < 19:
+        return None
+    try:
+        import calendar
+        sec = calendar.timegm(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
+    except (ValueError, TypeError):
+        return None
+    frac = 0
+    if len(ts) > 20 and ts[19] == ".":
+        digits = "".join(ch for ch in ts[20:23] if ch.isdigit())
+        frac = int(digits.ljust(3, "0")) if digits else 0
+    return sec * 1000 + frac
+
+
 def read_one(path):
     """讀出單一對話的摘要資訊與累計花費。
 
     計算花費需掃完整個檔：同一則回覆在串流過程會寫入多次，以 message id 去重取最後一筆。
+
+    新版 Claude Code 在每次執行結束時往檔尾寫一筆 cost-state，記下它自己
+    算的累計花費（從 startTime 起、跨多次續接累加），其中包含不寫進逐字稿
+    的背景呼叫。info["official"] 記下最後一筆，以及逐字稿裡被它涵蓋的那段
+    的估算值，由 scan() 換算成較準的總額。
     """
     st = os.stat(path)
     info = {
@@ -245,11 +287,16 @@ def read_one(path):
         "handoff_from": "",     # 交接摘要明指的前身對話 id
         "cost": 0.0,
         "turns": 0,
+        "first_ms": None,       # 第一／最後一則計費回覆的時間（毫秒）
+        "last_ms": None,
+        "official": None,
     }
     meta_done = False
     read_bytes = 0
     usage_by_id = {}
+    where_by_id = {}            # message id → (行號, 時間毫秒)
     order = []
+    cost_state = None           # (行號, 紀錄)
 
     with open(path, encoding="utf-8", errors="replace") as fh:
         for i, line in enumerate(fh):
@@ -267,6 +314,15 @@ def read_one(path):
                         if mid not in usage_by_id:
                             order.append(mid)
                         usage_by_id[mid] = (m["usage"], m.get("model"))
+                        where_by_id[mid] = (i, _iso_ms(o.get("timestamp")))
+
+            if '"cost-state"' in line:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    o = None
+                if o and o.get("type") == "cost-state"                         and isinstance(o.get("totalCostUSD"), (int, float))                         and isinstance(o.get("startTime"), (int, float)):
+                    cost_state = (i, o)
 
             # 標題不受檔頭窗口限制：改名記錄往檔尾追加，長對話的改名
             # 全落在窗口外。整檔都看、最後一筆為準（反正整檔本來就要讀）。
@@ -310,6 +366,24 @@ def read_one(path):
 
     info["cost"] = sum(_usage_cost(*usage_by_id[k]) for k in order)
     info["turns"] = len(order)
+    stamps = [ms for _, ms in where_by_id.values() if ms is not None]
+    if stamps:
+        info["first_ms"], info["last_ms"] = min(stamps), max(stamps)
+    if cost_state and not cost_state[1].get("hasUnknownModelCost"):
+        # 被這筆 cost-state 涵蓋的回覆：在它之前寫入、且不早於 startTime
+        at, o = cost_state
+        start = o["startTime"]
+        covered, end = 0.0, None
+        for k in order:
+            line_no, ms = where_by_id[k]
+            if line_no > at or (ms is not None and ms < start):
+                continue
+            covered += _usage_cost(*usage_by_id[k])
+            if ms is not None and (end is None or ms > end):
+                end = ms
+        info["official"] = {"usd": float(o["totalCostUSD"]), "start": start,
+                            "end": end if end is not None else start,
+                            "covered": covered}
     # 記錄尚無費率資料的模型，供介面標示
     info["unpriced"] = sorted({m for _, m in usage_by_id.values()
                                if is_real_model(m) and _price_key(m) is None})
@@ -380,7 +454,7 @@ def scan(use_cache=True, progress=None):
             # 快取存母檔本身的花費；顯示用的副本才加上子代理
             out.append(dict(info))
 
-    sub_cost, sub_unpriced = {}, {}
+    sub_cost, sub_unpriced, subs = {}, {}, {}
     for n, f in enumerate(sub_files):
         try:
             info = read_cached(f, len(files) + n)
@@ -391,6 +465,7 @@ def scan(use_cache=True, progress=None):
         if not pid:
             continue
         sub_cost[pid] = sub_cost.get(pid, 0.0) + info["cost"]
+        subs.setdefault(pid, []).append(info)
         for m in info.get("unpriced") or []:
             sub_unpriced.setdefault(pid, set()).add(m)
     for info in out:
@@ -400,6 +475,7 @@ def scan(use_cache=True, progress=None):
         if pid in sub_unpriced:
             info["unpriced"] = sorted(set(info.get("unpriced") or [])
                                       | sub_unpriced[pid])
+        info["cost"] = with_official(info, subs.get(pid, ()))
 
     try:
         with open(CACHE, "w", encoding="utf-8") as fh:
@@ -410,6 +486,29 @@ def scan(use_cache=True, progress=None):
 
     out.sort(key=lambda d: d["mtime"], reverse=True)
     return out
+
+
+# 子代理在母對話某次執行的期間內開始，就算進那次的 cost-state；
+# 容許母檔最後一則回覆之後再晚這麼久才開始（毫秒）
+SUB_GRACE_MS = 2 * 60 * 1000
+
+
+def with_official(info, subs=()):
+    """母對話（已含子代理）的金額，併入 Claude Code 自己記下的花費。
+
+    cost-state 涵蓋的那段改用官方數字，其餘仍是估算。官方數字比同段估算
+    低時（例如該次執行還沒結束、紀錄還沒寫）保留估算——只會往上修正，
+    不會因為官方紀錄不完整而少算。
+    """
+    off = info.get("official")
+    if not off:
+        return info["cost"]
+    covered = off["covered"]
+    for s in subs:
+        first = s.get("first_ms")
+        if first is not None and                 off["start"] <= first <= off["end"] + SUB_GRACE_MS:
+            covered += s["cost"]
+    return info["cost"] - covered + max(off["usd"], covered)
 
 
 def signature():
@@ -487,6 +586,45 @@ def move_session(session_id, new_cwd):
     return True, None
 
 
+# 新版 Claude Code 在紀錄檔裡另存送給模型的內容：每次請求的副本
+# （{"type":"api-request…} 開頭）與系統提示＋工具說明的快照（prompt_snapshot
+# 附件）。搜尋要跳過這兩種，否則系統提示裡的字會讓每一條新對話都「命中」；
+# 對話本身的內容在 user／assistant 記錄裡另有一份。
+REQUEST_PREFIX = b'{"type":"api-request'
+SNAPSHOT_MARK = b'"attachment":{"type":"prompt_snapshot"'
+HEAD_BYTES = 256            # 判斷記錄種類只看行首這麼多
+
+
+def _skip_line(head):
+    return head.startswith(REQUEST_PREFIX) or SNAPSHOT_MARK in head
+
+
+def _count_lines(block, pats, begin=0, end=None):
+    """block[begin:end]（完整的行）裡 pats 出現的總次數，跳過 Claude Code
+    自存副本的行。
+
+    逐個命中位置回頭看它所在那行的行首，同一行的命中共用判斷結果；
+    沒有命中的區塊不必切行，也不另外複製，維持位元組比對的速度。
+    """
+    if end is None:
+        end = len(block)
+    n = 0
+    for p in pats:
+        i = block.find(p, begin, end)
+        line_end, skip = -1, False
+        while i != -1:
+            if i > line_end:
+                start = max(begin, block.rfind(b"\n", begin, i) + 1)
+                line_end = block.find(b"\n", i, end)
+                if line_end == -1:
+                    line_end = end
+                skip = _skip_line(block[start:start + HEAD_BYTES])
+            if not skip:
+                n += 1
+            i = block.find(p, i + len(p), end)
+    return n
+
+
 def grep(needle, limit=200, progress=None):
     """在所有對話的全文裡找字串，回傳 {session_id: 命中次數}。
 
@@ -507,18 +645,29 @@ def grep(needle, limit=200, progress=None):
         if progress:
             progress(n + 1, len(files))
         hits = 0
-        tails = {p: b"" for p in pats}
+        pending = []            # 上一塊留下、還沒遇到換行的半行
         try:
             with open(f, "rb") as fh:
                 while True:
                     chunk = fh.read(1 << 20)
                     if not chunk:
+                        if pending:
+                            hits += _count_lines(b"".join(pending), pats)
                         break
-                    for p in pats:
-                        buf = tails[p] + chunk
-                        hits += buf.count(p)
-                        # 保留 len-1 個位元組接下一塊；保留整個 pattern 會重複計數
-                        tails[p] = buf[-(len(p) - 1):] if len(p) > 1 else b""
+                    # 以完整的行為單位計數。跨塊的那一行另外接起來算，
+                    # 整塊本身不複製
+                    first = chunk.find(b"\n")
+                    if first == -1:
+                        pending.append(chunk)
+                        continue
+                    if pending:
+                        pending.append(chunk[:first + 1])
+                        hits += _count_lines(b"".join(pending), pats)
+                    else:
+                        hits += _count_lines(chunk, pats, 0, first + 1)
+                    last = chunk.rfind(b"\n") + 1
+                    hits += _count_lines(chunk, pats, first + 1, last)
+                    pending = [chunk[last:]] if last < len(chunk) else []
         except OSError:
             continue
         if hits:

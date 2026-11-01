@@ -27,7 +27,14 @@ CHILD_MARKERS = (
     "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION",
     "CLAUDE_PID",
     "CLAUDE_EFFORT",
+    # 2.1.3xx 新增：跨對話傳訊的通道與「有人在看」標記
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SESSION_ATTENDED",
 )
+# Claude Code 給子行程設的 AI_AGENT（值形如 claude-code_2-1-316_agent）；
+# 使用者自己設的同名變數不動
+AGENT_MARKER = ("AI_AGENT", "claude-code")
 
 
 def alert(msg, title=None):
@@ -106,16 +113,79 @@ def _registry():
     return out
 
 
+DAEMON_ROSTER = os.path.join(os.path.expanduser("~"), ".claude", "daemon",
+                             "roster.json")
+JOBS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "jobs")
+
+
+def background_sessions():
+    """在背景執行的對話 {id(小寫): {"short", "pid", "status", "state",
+    "detail", "version"}}。
+
+    以 claude --bg（或 agent view）開的對話沒有視窗，也不在
+    ~/.claude/sessions 的執行期登錄裡，而是由背景服務的
+    ~/.claude/daemon/roster.json 管；每筆一樣驗證行程仍存活。
+    狀態取自 ~/.claude/jobs/<short>/state.json：working 為 busy，其餘 idle；
+    detail 是 Claude 寫下的「目前在做什麼」一句話，version 是該背景對話
+    執行的 Claude Code 版本。
+    """
+    import json
+    try:
+        with open(DAEMON_ROSTER, encoding="utf-8") as fh:
+            roster = json.load(fh)
+    except Exception:
+        return {}
+    workers = roster.get("workers") if isinstance(roster, dict) else None
+    out = {}
+    for short, w in (workers or {}).items():
+        if not isinstance(w, dict):
+            continue
+        sid, pid = w.get("sessionId"), w.get("pid")
+        if not sid or not isinstance(pid, int) \
+                or not _pid_alive(pid, w.get("procStart")):
+            continue
+        job = {}
+        try:
+            with open(os.path.join(JOBS_DIR, short, "state.json"),
+                      encoding="utf-8") as fh:
+                job = json.load(fh)
+            if not isinstance(job, dict):
+                job = {}
+        except Exception:
+            pass
+        state = job.get("state") or ""
+        out[sid.lower()] = {
+            "short": short, "pid": pid,
+            "status": "busy" if state == "working" else "idle",
+            "state": state,
+            "detail": " ".join(str(job.get("detail") or "").split())[:200],
+            "version": w.get("cliVersion") or job.get("cliVersion") or "",
+        }
+    return out
+
+
+def running_entrypoints():
+    """開著的互動對話是從哪裡開的 {id(小寫): entrypoint}，如 cli、claude-desktop。"""
+    if not os.path.isdir(SESSIONS_DIR):
+        return {}
+    return {sid: o.get("entrypoint") or "" for sid, o in _registry()}
+
+
 def running_status():
     """目前開著的對話 {id(小寫): 狀態}。狀態為 busy／idle，未知時為 idle。
 
     來源是 Claude Code 的執行期登錄 ~/.claude/sessions/<pid>.json，
-    涵蓋所有互動視窗，包括手動以 claude -r 從選單開啟的。
-    登錄目錄不存在時退回行程指令列比對。查詢失敗回空字典。
+    涵蓋所有互動視窗，包括手動以 claude -r 從選單開啟的；再加上
+    背景執行（claude --bg）的對話。登錄目錄不存在時退回行程指令列比對。
+    查詢失敗回空字典。
     """
     if os.path.isdir(SESSIONS_DIR):
-        return {sid: o.get("status") or "idle" for sid, o in _registry()}
-    return {sid: "idle" for sid in _running_by_cmdline()}
+        out = {sid: o.get("status") or "idle" for sid, o in _registry()}
+    else:
+        out = {sid: "idle" for sid in _running_by_cmdline()}
+    for sid, b in background_sessions().items():
+        out.setdefault(sid, b["status"])
+    return out
 
 
 def running_sessions():
@@ -124,9 +194,14 @@ def running_sessions():
 
 
 def running_pids():
-    """目前開著的對話 {id(小寫): 行程 pid}。"""
+    """目前開著、有視窗的對話 {id(小寫): 行程 pid}。
+
+    背景對話的行程也會登錄（kind 為 bg），但它沒有視窗；拿它的行程血緣
+    去找視窗可能找到不相干的終端機，所以排除。
+    """
     if os.path.isdir(SESSIONS_DIR):
-        return {sid: o["pid"] for sid, o in _registry()}
+        return {sid: o["pid"] for sid, o in _registry()
+                if o.get("kind") in (None, "", "interactive")}
     return _running_by_cmdline()
 
 
@@ -265,10 +340,30 @@ def focus_session(sid, hints=()):
     return True
 
 
+def bring_to_front(cfg, item, hints=()):
+    """已開啟的對話：有視窗就帶到前景；在背景執行的開一個視窗接上去。
+
+    背景對話本身沒有視窗；已經有視窗 attach 著（它會登錄成互動視窗）就
+    抬那個，沒有才以 claude attach 開新視窗接上。關掉那個視窗只是離開，
+    對話照樣在背景跑。回傳是否有所動作。
+    """
+    sid = item.get("session") or ""
+    if focus_session(sid, hints):
+        return True
+    bg = background_sessions().get(sid.lower())
+    if bg:
+        attach(cfg, item, bg["short"])
+        return True
+    return False
+
+
 def clean_env():
     """新視窗的環境：移除會使其誤判為子行程的標記。"""
     env = dict(os.environ)
     for key in CHILD_MARKERS:
+        env.pop(key, None)
+    key, prefix = AGENT_MARKER
+    if env.get(key, "").startswith(prefix):
         env.pop(key, None)
     return env
 
@@ -365,12 +460,14 @@ def _q(arg, shell):
     return "'%s'" % arg.replace("'", "''")
 
 
-def build_command(cfg, item):
-    """視窗中執行的指令。預設使用 PowerShell。"""
+def build_command(cfg, item, args=None):
+    """視窗中執行的指令。預設使用 PowerShell。args 省略時為續接該對話。"""
     claude = cfg.get("claude") or "claude"
     keep = cfg.get("keep_open", True)
     shell = cfg.get("shell", "powershell")
-    extra = " ".join(_q(a, shell) for a in claude_args(cfg, item))
+    if args is None:
+        args = claude_args(cfg, item)
+    extra = " ".join(_q(a, shell) for a in args)
 
     if shell == "cmd":
         return ["cmd", "/k" if keep else "/c", '"%s" %s' % (claude, extra)]
@@ -385,15 +482,99 @@ def build_command(cfg, item):
     return args
 
 
-def launch(cfg, item):
+def launch(cfg, item, args=None):
     wt = shutil.which("wt")
-    cmd = build_command(cfg, item)
+    cmd = build_command(cfg, item, args)
     if wt:
         args = [wt, "-w", "-1", "--title", item["name"], "-d", item["cwd"]] + cmd
     else:
         # 沒有 Windows Terminal 時退回傳統主控台視窗
         args = ["cmd", "/c", "start", item["name"], "/D", item["cwd"]] + cmd
     subprocess.Popen(args, env=clean_env(), close_fds=True)
+
+
+def attach(cfg, item, short):
+    """開一個視窗，以 claude attach 接上在背景執行的對話。"""
+    launch(cfg, item, ["attach", short])
+
+
+def start_background(cfg, item):
+    """在背景續接這條對話，不開視窗。回傳 (成功, 輸出)。
+
+    claude --bg --resume <id> 沒給新指示時會在背景待命；要看時再從
+    工作台開啟（會以 claude attach 接上）。模型、effort 等每條各自的
+    選擇照樣帶上。
+    """
+    return _run_claude(cfg, item["cwd"], ["--bg"] + claude_args(cfg, item),
+                       timeout=60)
+
+
+def fork_args(cfg, item):
+    """「分出一份」的參數：從這條對話的內容另起一條新對話，原本的不動。"""
+    args = claude_args(cfg, dict(item, new=False))
+    return args + ["--fork-session"]
+
+
+def fork(cfg, item):
+    """開一個視窗，從這條對話分出一份新的接著聊。"""
+    launch(cfg, item, fork_args(cfg, item))
+
+
+def open_in_desktop(cfg, item, timeout=60):
+    """在 Claude 桌面版裡續接這條對話。回傳 (成功, 錯誤訊息)。
+
+    claude --desktop 一定要有真的主控台（輸出不能被導走），所以開一個
+    隱藏的主控台跑它；它把對話交給桌面版後約一秒就結束。
+    """
+    claude = cfg.get("claude") or "claude"
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 0                                  # SW_HIDE
+    try:
+        p = subprocess.Popen([claude, "--desktop", "--resume", item["session"]],
+                             cwd=item["cwd"], env=clean_env(),
+                             creationflags=subprocess.CREATE_NEW_CONSOLE,
+                             startupinfo=si)
+        rc = p.wait(timeout)
+    except subprocess.TimeoutExpired:
+        return False, tr("Claude 桌面版沒有回應")
+    except Exception as e:
+        return False, str(e)
+    if rc != 0:
+        return False, tr("claude 回報失敗（代碼 %s）") % rc
+    return True, None
+
+
+_VERSION_CACHE = {}
+
+
+def claude_version(cfg=None):
+    """安裝的 Claude Code 版本（如 "2.1.316"）；執行檔沒變就不重問。"""
+    claude = (cfg or {}).get("claude") or config.find_claude() or "claude"
+    try:
+        st = os.stat(claude)
+        sig = (claude, st.st_size, int(st.st_mtime))
+    except OSError:
+        sig = (claude,)
+    if sig not in _VERSION_CACHE:
+        import claudeschema
+        _VERSION_CACHE.clear()
+        _VERSION_CACHE[sig] = claudeschema.installed_version(claude)
+    return _VERSION_CACHE[sig]
+
+
+def outdated_background(bg, version):
+    """背景對話裡執行舊版 Claude Code 的那些 id。版本不明的不算。"""
+    if not version:
+        return []
+    return sorted(sid for sid, b in bg.items()
+                  if b.get("version") and b["version"] != version)
+
+
+def respawn_background(cfg):
+    """讓所有背景對話改用目前安裝的 Claude Code 版本。回傳 (成功, 輸出)。"""
+    return _run_claude(cfg, os.path.expanduser("~"), ["respawn", "--all"],
+                       timeout=120)
 
 
 def main():
@@ -418,11 +599,14 @@ def main():
     delay = max(0, int(cfg.get("stagger_ms", 700))) / 1000.0
     for n, item in enumerate(items):
         if item["session"].lower() in already_ids:
+            if item.get("background"):
+                # 設成在背景開的本來就不要視窗；已在跑就好
+                continue
             # 不重複開啟，改把既有視窗帶到前景；找不到視窗才留給結尾提示
             already.append(item["name"])
             p = session_file(item)
             hints = [item["name"]] + ([sessions.quick_title(p)] if p else [])
-            if not focus_session(item["session"], hints):
+            if not bring_to_front(cfg, item, hints):
                 unfocused.append(item["name"])
             continue
         if not os.path.isdir(item["cwd"]):
@@ -432,7 +616,14 @@ def main():
             missing.append(tr("%s　找不到對話紀錄") % item["name"])
             continue
         try:
-            launch(cfg, item)
+            if item.get("background"):
+                ok, out = start_background(cfg, item)
+                if not ok:
+                    missing.append(tr("%s　背景開啟失敗：%s")
+                                   % (item["name"], out))
+                    continue
+            else:
+                launch(cfg, item)
             opened += 1
         except Exception as e:
             missing.append(tr("%s　開啟失敗：%s") % (item["name"], e))

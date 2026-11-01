@@ -78,6 +78,42 @@ EN = {
     "  ⚠ 找不到": "  ⚠ missing",
     "  ⚠ 有更新的接續": "  ⚠ newer continuation exists",
     "　（已交接）": " (handed off)",
+    "　（背景執行）": " (background)",
+    "　（啟動時在背景開）": " (starts in background)",
+    "%d 條背景對話仍是舊版（工具 → 背景對話改用新版）":
+        "%d background sessions on an old version (Tools → Move background "
+        "sessions to new Claude)",
+    "%s　背景開啟失敗：%s": "%s  failed to start in background: %s",
+    "%s（分支）": "%s (branch)",
+    "Claude 桌面版沒有回應": "Claude Desktop did not respond",
+    "claude 回報失敗（代碼 %s）": "claude reported failure (code %s)",
+    "「%s」啟動時改回開視窗": "\"%s\" now opens in a window at launch",
+    "「%s」啟動時改在背景開；要看時雙擊會開視窗接上":
+        "\"%s\" now starts in the background at launch; double-click to "
+        "attach in a window",
+    "「%s」正在 Claude 桌面版裡開著。": "\"%s\" is open in Claude Desktop.",
+    "交給 Claude 桌面版中…": "Handing over to Claude Desktop…",
+    "交給桌面版失敗": "Handing over to Claude Desktop failed",
+    "分出一份接著聊": "Branch into a new session",
+    "啟動時在背景開（不開視窗）": "Start in background at launch (no window)",
+    "在 Claude 桌面版開啟": "Open in Claude Desktop",
+    "在背景待命": "Waiting in background",
+    "已分出一份：%s": "Branched: %s",
+    "已在 Claude 桌面版開啟：%s": "Opened in Claude Desktop: %s",
+    "目前沒有在背景執行的對話。": "No sessions are running in the background.",
+    "背景執行中": "Running in background",
+    "背景對話已改用新版": "Background sessions moved to the new version",
+    "背景對話改用新版 Claude": "Move background sessions to new Claude",
+    "該對話開啟中，關閉後再交給桌面版":
+        "The session is open; close it before handing it to Claude Desktop",
+    "重新啟動 %d 條背景對話，讓它們改用目前安裝的 Claude Code？"
+    "\n\n對話內容不會遺失；正在進行中的那一輪會中斷。":
+        "Restart %d background sessions so they use the installed Claude "
+        "Code?\n\nNo conversation is lost; a turn in progress is "
+        "interrupted.",
+    "重新啟動失敗": "Restart failed",
+    "重新啟動背景對話中…": "Restarting background sessions…",
+    "：%s": ": %s",
     "顯示已交接": "Show handed-off",
     "啟動清單已改指到接續：%s":
         "Launch list now follows the continuation: %s",

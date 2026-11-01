@@ -23,7 +23,7 @@ ON, OFF = tr("開啟", "bool"), tr("關閉", "bool")
 BOOL_CHOICES = [UNSET, ON, OFF]
 
 # 此清單對照過的 Claude Code 版本；與實際安裝版本不同時會在介面上標示。
-VERIFIED_FOR = "2.1.235"
+VERIFIED_FOR = "2.1.316"
 
 # (鍵, 標籤, 型別, 備援選項, 一句話說明)
 #   型別 bool / choice / int / text / path / file
@@ -31,7 +31,7 @@ VERIFIED_FOR = "2.1.235"
 CLAUDE_SPEC = [
     (tr("模型與思考"), [
         ("model", tr("預設模型"), "choice",
-         ["opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"],
+         ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"],
          tr("[1m]：100 萬 token 長脈絡版本")),
         ("effortLevel", tr("思考強度"), "choice",
          ["low", "medium", "high", "xhigh"],
@@ -56,7 +56,8 @@ CLAUDE_SPEC = [
     ]),
     (tr("權限"), [
         ("permissions.defaultMode", tr("預設權限模式"), "choice",
-         ["default", "auto", "acceptEdits", "plan", "bypassPermissions"],
+         ["default", "auto", "acceptEdits", "plan", "dontAsk",
+          "bypassPermissions"],
          tr("bypassPermissions：不詢問。遠端遙控時降為 default")),
         ("skipDangerousModePermissionPrompt", tr("略過危險模式確認"), "bool",
          None, ""),
@@ -64,7 +65,7 @@ CLAUDE_SPEC = [
          tr("hooks：事件觸發的自動指令")),
     ]),
     (tr("外觀"), [
-        ("theme", tr("配色"), "choice", ["light", "dark"],
+        ("theme", tr("配色"), "choice", ["auto", "light", "dark"],
          tr("未設定：跟隨系統")),
         ("language", tr("回覆語言"), "text", None,
          tr("語言名稱，如 traditional chinese")),

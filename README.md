@@ -80,8 +80,9 @@ is the launch list; top to bottom is the order sessions open in.
   log — enough to tell sessions apart without opening them. Tool calls and
   system noise are filtered out.
 - **Context menus**: on the left, Open / Preview / Add to launch list /
-  Archive / Rename / Move to another folder / Copy resume command. On the
-  right, Open / Preview / Rename / Move up / Move down / Remove.
+  Archive / Rename / Branch into a new session / Open in Claude Desktop /
+  Move to another folder / Copy resume command. On the right, Open / Preview /
+  Rename / Start in background at launch / Move up / Move down / Remove.
 - **Click the Cost, Context or Last used header to sort**, click again to
   reverse. The sort is remembered.
 - **Status dot**: green ● is open and idle, orange ● is Claude working. It
@@ -98,7 +99,7 @@ is the launch list; top to bottom is the order sessions open in.
 |---|---|
 | **File** | New session… (Ctrl+N) / Add from resume command… / Save (Ctrl+S) / Exit |
 | **View** | Show cost / Show context usage / Search session contents / Last 30 days only / Show archived / Show handed-off |
-| **Tools** | Claude Code settings… (Ctrl+,) / Workbench options… / Open at startup / Program folder / Error log |
+| **Tools** | Claude Code settings… (Ctrl+,) / Workbench options… / Move background sessions to new Claude / Open at startup / Program folder / Error log |
 | **Help** | Check for updates / About |
 
 Actions that already have a button (add, rename, reorder, remove, rescan,
@@ -139,7 +140,7 @@ touched.** It is reversible at any time.
 - Session ids in the archive list that no longer exist match nothing.
 
 Claude Code has no built-in way to archive or hide an individual session. Its
-cleanup tool is `claude project purge [folder]`, which deletes all state for
+cleanup tool is `claude purge [folder]` (formerly `claude project purge`), which deletes all state for
 that folder (transcripts, tasks, file edit history, and the folder's entry in
 `~/.claude.json`); `--dry-run` previews it and `-i` confirms item by item.
 
@@ -203,6 +204,19 @@ The status bar says "will sync to Claude when the session closes".
 Syncing the name in Claude is done by the official CLI and appends the rename
 records to that session's log. It is handled locally, without a model call.
 
+## Branch, Claude Desktop
+
+- **Branch into a new session** (left context menu) opens a new window that
+  continues from that session's content as a separate session
+  (`claude --resume <id> --fork-session`). The original is not touched, so
+  this also works while the original is open.
+- **Open in Claude Desktop** hands the session to the Claude Desktop app
+  (`claude --desktop --resume <id>`, run in a hidden console because that
+  command refuses to run without one). It is disabled while the session is
+  open elsewhere, since two programs would then write the same log. Once it is
+  open in the desktop app, opening it from the workbench says so instead of
+  looking for a terminal window.
+
 ## Move to another folder
 
 "Move to another folder…" in the left context menu moves that session's log
@@ -221,20 +235,34 @@ are the API-equivalent value of the usage, not an actual bill.
 
 How it is calculated: every reply records a `usage` block (input, output,
 cache write and cache read token counts) and the model in use, converted at
-Anthropic's published rates. Cache reads are the input rate ×0.1 (×0.025 on
-the Fable/Mythos 5.1 generation), 5-minute cache writes ×1.25, 1-hour cache
-writes ×2.
+Anthropic's published rates. Cache reads are the input rate ×0.1 (×0.05 on
+Opus 5.5, ×0.025 on the Fable/Mythos 5.1 generation), 5-minute cache writes
+×1.25, 1-hour cache writes ×2.
 
 Fast mode (×2 rate, detected from `usage.speed`) and web search ($10 per
 thousand) are included. Current-generation models (Claude 4.6 onward) bill
-the full 1M context window at standard rates, so there is no long-context
-premium to account for.
+the full 1M context window at standard rates. The one exception is Haiku 5.5,
+which has two rate cards: $0.10 / $0.50 per million when the prompt (input
+plus cache reads and writes) is 100K tokens or fewer, $0.50 / $2.50 above
+that — applied per reply.
 
-**These are estimates.** A subscription is not billed per session; the number
-is for comparing how much went into each one. Measured against the official
-cost recorded in `.claude.json`, sessions completed in a single run agree
-within ±11%; sessions spread over several days and several runs come out
-higher, because the official field only records the last run.
+**Claude Code's own figure is folded in.** Recent Claude Code versions write
+a `cost-state` record to the end of the log each time a run ends: its own
+running total since a start time, carried across resumes. That total also
+covers background calls that never appear in the log (title generation,
+classifiers, compaction and the like), so the transcript-based estimate for
+the same stretch runs 0–27% low. For the stretch a `cost-state` covers — from
+its start time up to the point it was written, subagents started in that
+window included — the official number replaces the estimate; everything
+before and after is still estimated. If the official number is lower than the
+estimate for the same stretch (a run still in progress, or a record that was
+not fully written), the estimate is kept: the official figure only ever
+raises a total. Records flagged `hasUnknownModelCost` are ignored.
+
+**These are still estimates.** A subscription is not billed per session; the
+number is for comparing how much went into each one. Sessions whose whole
+history is covered by `cost-state` match Claude Code's figure exactly; older
+history from before Claude Code started recording it is estimated.
 
 Costs include the subagent and workflow transcripts filed under the session
 (`<session-id>/subagents/`); those agents bill separately and are never
@@ -258,7 +286,15 @@ marked "[N hits]".
 
 Searching starts at two characters and is debounced by 0.35 seconds so it does
 not rescan on every keystroke. It compares bytes without parsing JSON, and
-gets through several hundred MB of logs in about a second.
+gets through about 1 GB of logs per second (7 GB in roughly 6 seconds on the
+development machine).
+
+Recent Claude Code versions also store copies of what was sent to the model in
+the log — per-request records (`{"type":"api-request…`) and a snapshot of the
+system prompt and tool descriptions (`prompt_snapshot` attachments). Search
+skips those lines; otherwise any phrase from Claude's built-in instructions
+would match every new session. The conversation itself is still searched in
+full, since it is recorded separately as user and assistant messages.
 
 ## Settings editor
 
@@ -282,8 +318,8 @@ and timestamp. As a result:
 - keys that are in the file but not on a tab are collected on the
   "Other settings" tab instead of disappearing
 
-There is no temperature field: current models (Opus 5 / 4.8, Sonnet 5,
-Fable 5) no longer accept `temperature` or `top_p` and return 400. The
+There is no temperature field: current models (Opus 5.5 / 5, Sonnet 5.5,
+Haiku 5.5, Fable 5.1) no longer accept `temperature` or `top_p` and return 400. The
 equivalent knob is **effort**, written to the settings file as `low`,
 `medium`, `high` or `xhigh` (the CLI's `--effort` also takes `max`).
 
@@ -343,6 +379,28 @@ process is still alive before trusting the entry — about 1 ms.
 **It covers every interactive window, including ones opened by hand with
 `claude -r` from the picker.** On older Claude versions without that
 directory, it falls back to comparing process command lines.
+
+**Background sessions** (`claude --bg`, or dispatched from `claude agents`)
+have no window. The background service keeps them in
+`~\.claude\daemon\roster.json`; detection reads that too, with the same
+liveness check, and takes busy/idle and a one-line "what it is doing now"
+from `~\.claude\jobs\<id>\state.json` (shown in the preview). Their entries
+in the runtime registry (kind `bg`) are never used to look for a window. Such
+rows are labelled **(background)**. Opening one never starts a second copy:
+if a window is already attached to it, that window is raised; otherwise a new
+window runs `claude attach <id>`. Closing that window only detaches — the
+session keeps running in the background.
+
+- **Start in background at launch** (right list context menu) marks a launch
+  list item so that the launcher, "Launch now" and open-at-login resume it in
+  the background (`claude --bg --resume <id>`, with its model/effort choices)
+  instead of opening a window; if it is already running, it is left alone.
+  Double-clicking it still opens a window, attaching to the background session.
+- Background sessions keep running the Claude Code version they started with.
+  When some are on an older version than the one installed, the status bar
+  says so; **Tools → Move background sessions to new Claude** restarts them all
+  (`claude respawn --all`). Conversations are kept; a turn in progress is
+  interrupted.
 
 Detection runs every 3 seconds, and "Rescan" runs it immediately. A window
 newly started from the workbench that has not written its registry entry yet
@@ -417,7 +475,7 @@ the default size is used.
 - **Cache location**: the scan cache and schema cache live in the user data
   directory, so the install folder can be read-only.
 - **Regression tests**: `python tests/regression.py` runs against a sandbox
-  copy of the config file and does not disturb a workbench in use. 132 checks,
+  copy of the config file and does not disturb a workbench in use. 170 checks,
   including the invariant that no session log is ever deleted or truncated.
   They also run on GitHub Actions (Windows, Python 3.9 and 3.13) on every
   push; checks that need an installed `claude` binary are skipped there and
@@ -463,7 +521,9 @@ When this tool is started from inside Claude Code, new windows inherit markers
 such as `CLAUDE_CODE_CHILD_SESSION`, which makes them look like child
 processes: they show `Transcript saving is off` and their conversation is
 never saved. `launch.pyw` therefore strips the `CLAUDE*` session markers from
-the environment before opening a window.
+the environment before opening a window — including the cross-session
+messaging channel (`CLAUDE_CODE_MESSAGING_*`), `CLAUDE_CODE_SESSION_ATTENDED`,
+and an `AI_AGENT` value set by Claude Code (one you set yourself is kept).
 
 ## Known detail
 
@@ -473,20 +533,28 @@ command would need them written as `\;`.
 
 ## Internal dependencies
 
-This tool relies on three undocumented Claude Code internals, verified against
-2.1.235 on Windows 11:
+This tool relies on these undocumented Claude Code internals, verified against
+2.1.316 on Windows 11:
 
 1. The settings editor scans the zod schema inside `claude.exe` for available
-   values; when the scan finds nothing it falls back to a built-in list.
+   values (both the older `key:validator(…)` form and the lazy
+   `key:()=>validator(…)` form used since 2.1.3xx, including enums that point
+   at a named array); when the scan finds nothing it falls back to a built-in
+   list.
 2. Running detection reads the `~\.claude\sessions\<pid>.json` runtime
    registry; when that directory does not exist it falls back to comparing
    process command lines.
-3. Cost rates are a hand-maintained table (published pricing, 2026-08).
+3. Background sessions are read from `~\.claude\daemon\roster.json` and
+   `~\.claude\jobs\<id>\state.json`; when those are missing, background
+   sessions are simply not shown as running.
+4. Cost rates are a hand-maintained table (published pricing, 2026-11).
    Unknown models are marked ⚠ and estimated at the Opus rate, and a price
    change to an existing model is not picked up automatically.
+5. The `cost-state` records at the end of each log; without them the cost is
+   the transcript estimate alone.
 
-All three degrade rather than break when Claude Code changes. Keeping up with
-every Claude Code release is not promised.
+All of them degrade rather than break when Claude Code changes. Keeping up
+with every Claude Code release is not promised.
 
 ## License
 

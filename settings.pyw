@@ -365,6 +365,9 @@ class App(ttk.Frame):
         self.hits = None           # 全文搜尋結果 {session_id: 次數}
         self.running = set()       # 執行中的對話 id（小寫）
         self.running_status = {}   # id -> busy／idle
+        self.background = set()    # 其中在背景執行（claude --bg）的 id
+        self.background_info = {}  # id -> launch.background_sessions() 的內容
+        self.claude_version = ""   # 安裝的 Claude Code 版本
         self.schema_ready = False
         self._filter_job = None
         self._grep_gen = 0
@@ -476,6 +479,9 @@ class App(ttk.Frame):
                       command=self.edit_claude_settings)
         m.add_command(label=tr("工作台選項…"), command=self.edit_workbench_options)
         m.add_separator()
+        m.add_command(label=tr("背景對話改用新版 Claude"),
+                      command=self.respawn_background)
+        m.add_separator()
         self.v_startup = tk.BooleanVar(value=startup.is_enabled())
         m.add_checkbutton(label=tr("開機時自動開啟"),
                           variable=self.v_startup, command=self.toggle_startup)
@@ -516,6 +522,11 @@ class App(ttk.Frame):
             label=tr("重新命名"), accelerator="F2",
             command=self.rename_session_title)
         self.tree_menu.add_separator()
+        add(self.tree_menu, self._tm_idx, "fork",
+            label=tr("分出一份接著聊"), command=self.fork_selected)
+        add(self.tree_menu, self._tm_idx, "desktop",
+            label=tr("在 Claude 桌面版開啟"), command=self.open_in_desktop)
+        self.tree_menu.add_separator()
         add(self.tree_menu, self._tm_idx, "move",
             label=tr("移至其他資料夾…"), command=self.move_to_folder)
         add(self.tree_menu, self._tm_idx, "copy",
@@ -531,6 +542,11 @@ class App(ttk.Frame):
             command=self.show_preview_picked)
         add(self.picked_menu, self._pm_idx, "rename",
             label=tr("重新命名"), accelerator="F2", command=self.rename_item)
+        self.v_item_bg = tk.BooleanVar(value=False)
+        self.picked_menu.add_checkbutton(
+            label=tr("啟動時在背景開（不開視窗）"), variable=self.v_item_bg,
+            command=self.toggle_item_background)
+        self._pm_idx["background"] = self.picked_menu.index("end")
         self.picked_menu.add_separator()
         add(self.picked_menu, self._pm_idx, "up",
             label=tr("上移"), command=self.move_up)
@@ -555,20 +571,120 @@ class App(ttk.Frame):
         label = (tr("取消封存") if picked and
                  all(s in self.archived for s in picked) else tr("封存"))
         self.tree_menu.entryconfigure(self._tm_idx["archive"], label=label)
-        for key in ("preview", "rename", "move", "copy"):
+        for key in ("preview", "rename", "move", "copy", "fork"):
             self.tree_menu.entryconfigure(
                 self._tm_idx[key],
                 state="normal" if len(picked) == 1 else "disabled")
+        # 開著的對話交給桌面版會變成兩個行程寫同一個紀錄檔
+        self.tree_menu.entryconfigure(
+            self._tm_idx["desktop"],
+            state="normal" if len(picked) == 1 and
+            picked[0].lower() not in self.running else "disabled")
         self.tree_menu.tk_popup(event.x_root, event.y_root)
 
     def _picked_context(self, event):
         if not self._context_select(self.picked, event):
             return
         single = len(self._sels()) == 1
-        for key in ("preview", "rename", "up", "down"):
+        for key in ("preview", "rename", "up", "down", "background"):
             self.picked_menu.entryconfigure(
                 self._pm_idx[key], state="normal" if single else "disabled")
+        if single:
+            self.v_item_bg.set(bool(self.items[self._sels()[0]]
+                                    .get("background")))
         self.picked_menu.tk_popup(event.x_root, event.y_root)
+
+    def toggle_item_background(self):
+        """啟動清單的這條：按「立即啟動」或開機自動開啟時在背景開，不開視窗。"""
+        sels = self._sels()
+        if len(sels) != 1:
+            return
+        item = self.items[sels[0]]
+        if self.v_item_bg.get():
+            item["background"] = True
+        else:
+            item.pop("background", None)
+        self._touch()
+        self.save()
+        self.status.configure(
+            text=(tr("「%s」啟動時改在背景開；要看時雙擊會開視窗接上")
+                  if item.get("background") else
+                  tr("「%s」啟動時改回開視窗")) % item["name"])
+
+    def fork_selected(self):
+        """從選取的對話分出一份新的，在新視窗接著聊；原本那條不動。"""
+        picked = self.selected_sessions()
+        if len(picked) != 1:
+            return
+        item = self.item_for(picked[0])
+        if not item:
+            return
+        info = sessions.by_id(self.sessions).get(picked[0]) or {}
+        title = sessions.label(info) if info else item["name"]
+        item = dict(item, name=tr("%s（分支）") % title)
+        try:
+            launch.fork(config.load(), item)
+            self.status.configure(text=tr("已分出一份：%s") % title)
+        except Exception as e:
+            messagebox.showwarning(tr("分出一份接著聊"),
+                                   tr("開啟失敗\n\n%s") % e)
+
+    def open_in_desktop(self):
+        """把選取的對話交給 Claude 桌面版續接。"""
+        picked = self.selected_sessions()
+        if len(picked) != 1:
+            return
+        sid = picked[0]
+        if sid.lower() in self.running:
+            messagebox.showwarning(tr("在 Claude 桌面版開啟"),
+                                   tr("該對話開啟中，關閉後再交給桌面版"))
+            return
+        item = self.item_for(sid)
+        if not item:
+            return
+        if not os.path.isdir(item["cwd"]):
+            messagebox.showwarning(tr("在 Claude 桌面版開啟"),
+                                   tr("資料夾不存在\n\n%s") % item["cwd"])
+            return
+        self.status.configure(text=tr("交給 Claude 桌面版中…"))
+
+        def done(result, err):
+            ok, msg = result if result else (False, str(err))
+            if ok:
+                self._just_launched[sid.lower()] = time.time()
+                self.status.configure(
+                    text=tr("已在 Claude 桌面版開啟：%s") % item["name"])
+            else:
+                self.status.configure(text=tr("交給桌面版失敗"))
+                messagebox.showwarning(tr("在 Claude 桌面版開啟"),
+                                       msg or tr("claude 回報失敗"))
+
+        self.run_bg(launch.open_in_desktop, done, config.load(), item)
+
+    def respawn_background(self):
+        """讓所有背景對話改用目前安裝的 Claude Code 版本。"""
+        if not self.background:
+            messagebox.showinfo(tr("背景對話改用新版 Claude"),
+                                tr("目前沒有在背景執行的對話。"))
+            return
+        if not messagebox.askyesno(
+                tr("背景對話改用新版 Claude"),
+                tr("重新啟動 %d 條背景對話，讓它們改用目前安裝的 Claude Code？"
+                   "\n\n對話內容不會遺失；正在進行中的那一輪會中斷。")
+                % len(self.background)):
+            return
+        self.status.configure(text=tr("重新啟動背景對話中…"))
+
+        def done(result, err):
+            ok, out = result if result else (False, str(err))
+            self.status.configure(
+                text=tr("背景對話已改用新版") if ok else tr("重新啟動失敗"))
+            if not ok:
+                messagebox.showwarning(tr("背景對話改用新版 Claude"),
+                                       out or tr("claude 回報失敗"))
+            self.refresh_running()
+
+        self.run_bg(launch.respawn_background, done, config.load())
 
     def move_to_folder(self):
         picked = self.selected_sessions()
@@ -661,6 +777,15 @@ class App(ttk.Frame):
         if bits:
             ttk.Label(head, text=tr("　·　").join(bits),
                       foreground="#555555").pack(anchor="w")
+        bg = self.background_info.get(sid.lower())
+        if bg:
+            line = tr("背景執行中") if bg.get("status") == "busy" \
+                else tr("在背景待命")
+            if bg.get("detail"):
+                line += tr("：%s") % bg["detail"]
+            ttk.Label(head, text=line, foreground="#8a4b00",
+                      wraplength=int(520 * screen_dpi() / 96.0),
+                      justify="left").pack(anchor="w")
 
         body = ttk.Frame(w, padding=(14, 8, 14, 12))
         body.pack(fill="both", expand=True)
@@ -994,6 +1119,11 @@ class App(ttk.Frame):
                         if s["id"].lower() in self.running])
             if live:
                 bits.append(tr("執行中 %d") % live)
+        old = launch.outdated_background(self.background_info,
+                                         self.claude_version)
+        if old:
+            bits.append(tr("%d 條背景對話仍是舊版（工具 → 背景對話改用新版）")
+                        % len(old))
         self.status.configure(text=tr("　·　").join(bits))
         text = tr("累計 %s（API 牌價估算）") % sessions.money(total)
         unknown = sorted({m for s in self.sessions
@@ -1014,6 +1144,11 @@ class App(ttk.Frame):
             self._poll_busy = False
             if err is not None or result is None:
                 return
+            result, info, version = result
+            background = set(info)
+            self.background_info = info
+            if version:
+                self.claude_version = version
             # 剛啟動的行程尚未寫入執行期登錄前保護 15 秒；
             # 一旦登錄出現即改由偵測結果作準
             now = time.time()
@@ -1023,14 +1158,21 @@ class App(ttk.Frame):
             merged = dict(result)
             for sid in self._just_launched:
                 merged.setdefault(sid, "idle")
-            if merged != self.running_status:
+            if merged != self.running_status                     or background != self.background:
                 self.running_status = merged
                 self.running = set(merged)
+                self.background = background
                 self.refresh_views()
                 self.update_status()
             self._flush_pending_renames(set(merged))
 
-        self.run_bg(launch.running_status, done)
+        def poll():
+            # 背景執行的另外記一份：清單上加註、預覽顯示進度、比對版本
+            bg = launch.background_sessions()
+            version = launch.claude_version(config.load()) if bg else ""
+            return launch.running_status(), bg, version
+
+        self.run_bg(poll, done)
 
     def _poll_running(self):
         self.refresh_running()
@@ -1123,6 +1265,8 @@ class App(ttk.Frame):
                 text += tr("　（已封存）")
             if s["id"].lower() in self.running:
                 text = RUN_MARK + text
+                if s["id"].lower() in self.background:
+                    text += tr("　（背景執行）")
             groups.setdefault(s["cwd"] or tr("(不明)"), []).append((s, text))
 
         def group_rank(cwd):
@@ -1167,6 +1311,10 @@ class App(ttk.Frame):
             if status:
                 tags = ("busy",) if status == "busy" else ("running",)
                 name = RUN_MARK + name
+                if item["session"].lower() in self.background:
+                    name += tr("　（背景執行）")
+            elif item.get("background"):
+                name += tr("　（啟動時在背景開）")
             if s is None and not sessions.find_file(item["session"]):
                 tags, name = ("stale",), item["name"] + tr("  ⚠ 找不到")
             elif s is not None and s["id"] in ho_map:
@@ -1258,8 +1406,12 @@ class App(ttk.Frame):
                 text=tr("啟動清單已改指到接續：%s") % tr("、").join(changed))
         return changed
 
-    def open_many(self, targets, confirm=True):
-        """驗證與確認在主執行緒；實際開窗與間隔在背景執行緒。"""
+    def open_many(self, targets, confirm=True, honor_background=False):
+        """驗證與確認在主執行緒；實際開窗與間隔在背景執行緒。
+
+        honor_background 為真時（「立即啟動」），設成「啟動時在背景開」的
+        項目改在背景續接、不開視窗，已在跑的也不去接上。
+        """
         targets = [t for t in targets if t]
         if not targets:
             return
@@ -1289,6 +1441,8 @@ class App(ttk.Frame):
                     self.status.configure(text=tr("名稱同步中，稍候再開"))
             elif cfg.get("skip_running", True) and \
                     t["session"].lower() in self.running:
+                if honor_background and t.get("background"):
+                    continue        # 本來就要在背景跑，已在跑就好
                 # 不重複開啟，改把既有視窗帶到前景
                 focus_q.append(t)
             else:
@@ -1310,8 +1464,8 @@ class App(ttk.Frame):
                 info = index.get(t["session"]) or {}
                 ok = False
                 try:
-                    ok = launch.focus_session(
-                        t["session"],
+                    ok = launch.bring_to_front(
+                        cfg, t,
                         [t["name"], sessions.label(info) if info else ""])
                 except Exception:
                     pass
@@ -1322,7 +1476,17 @@ class App(ttk.Frame):
                             text=tr("已帶到前景：%s") % nm))
                 else:
                     skipped.append(tr("%s　已開啟") % t["name"])
-                    if not quiet:
+                    where = ""
+                    try:
+                        where = launch.running_entrypoints().get(
+                            t["session"].lower(), "")
+                    except Exception:
+                        pass
+                    if not quiet and where == "claude-desktop":
+                        self._post(lambda nm=t["name"]: messagebox.showinfo(
+                            tr("Claude 工作台"),
+                            tr("「%s」正在 Claude 桌面版裡開著。") % nm))
+                    elif not quiet:
                         # 只在狀態列講會被忽略；用訊息框明說
                         self._post(lambda nm=t["name"]: messagebox.showinfo(
                             tr("Claude 工作台"),
@@ -1330,7 +1494,12 @@ class App(ttk.Frame):
                                "請於工作列尋找。") % nm))
             for n, item in enumerate(todo):
                 try:
-                    launch.launch(cfg, item)
+                    if honor_background and item.get("background"):
+                        ok, out = launch.start_background(cfg, item)
+                        if not ok:
+                            raise RuntimeError(out)
+                    else:
+                        launch.launch(cfg, item)
                     opened += 1
                     sid = item["session"].lower()
                     self.running.add(sid)
@@ -1782,7 +1951,7 @@ class App(ttk.Frame):
 
     def launch_now(self):
         self.save()
-        self.open_many(list(self.items), confirm=False)
+        self.open_many(list(self.items), confirm=False, honor_background=True)
 
 
 def set_icon(win, name="settings.ico"):

@@ -21,15 +21,93 @@ CREATE_NO_WINDOW = 0x08000000
 
 # autoCompactEnabled:jt().optional().describe("Automatically compact …")
 # viewMode:Nr(["default","verbose"]).optional().catch(void 0).describe("…")
+# 2.1.3xx 起多數改成延遲宣告：viewMode:()=>U(["default",…]).optional()…
+LAZY = rb"(?:\(\)\s*=>\s*)?"
 SCHEMA_RE = re.compile(
-    rb"([A-Za-z][A-Za-z0-9]{2,40})\s*:\s*[A-Za-z0-9_$]{1,8}\("
+    rb"([A-Za-z][A-Za-z0-9]{2,40})\s*:\s*" + LAZY + rb"[A-Za-z0-9_$]{1,8}\("
     rb"[^;{}]{0,600}?\.describe\((['\"])(.{1,900}?)\2\s*\)",
     re.DOTALL)
 
-# 枚舉：Nr(["a","b","c"])。只在 SCHEMA_RE 命中的宣告範圍內比對——
-# 全檔掃描會綁到同名的無關陣列，產生看似合理但無效的選項值。
-ENUM_RE = re.compile(
-    rb"^[A-Za-z][A-Za-z0-9]{2,40}\s*:\s*[A-Za-z0-9_$]{1,8}\(\s*\[([^\]]{1,300})\]")
+# 枚舉：Nr(["a","b","c"])、U(["a","b"])，或指向變數 U(aJt)、聯集的第一項
+# Ue([U(R1e),…])。只在 SCHEMA_RE 命中的宣告開頭比對——全檔掃描會綁到
+# 同名的無關陣列，產生看似合理但無效的選項值。
+_HEAD = (rb"^[A-Za-z][A-Za-z0-9]{2,40}\s*:\s*" + LAZY
+         + rb"[A-Za-z0-9_$]{1,8}\(\s*")
+ENUM_RE = re.compile(_HEAD + rb"\[([^\]]{1,300})\]")
+REF_RE = re.compile(_HEAD + rb"(?:\[\s*[A-Za-z0-9_$]{1,8}\(\s*)?"
+                    rb"([A-Za-z_$][A-Za-z0-9_$]{0,7})\s*\)")
+_ITEM_STR = re.compile(r'^"([^"\\]{1,40})"$')
+_ITEM_SPREAD = re.compile(r"^\.\.\.([A-Za-z_$][A-Za-z0-9_$]{0,7})$")
+
+
+def _array_values(raw, defs):
+    """陣列字面值的內容 → 字串清單。
+
+    只接受字串與 ...變數 兩種項目，變數從 defs（名稱 → 字串清單或 None）
+    查；出現其他東西（呼叫、物件、數字）表示這不是單純的枚舉，回 None。
+    """
+    vals = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        m = _ITEM_STR.match(part)
+        if m:
+            vals.append(m.group(1))
+            continue
+        m = _ITEM_SPREAD.match(part)
+        sub = defs.get(m.group(1)) if m else None
+        if sub is None:
+            return None
+        vals.extend(sub)
+    return vals or None
+
+
+def _spreads(raw):
+    return [m.group(1) for m in (_ITEM_SPREAD.match(p.strip())
+                                 for p in raw.split(",")) if m]
+
+
+def _find_defs(names, blob):
+    """一次掃描找出 names 裡每個變數的陣列定義：{名稱: 原始內容}。
+
+    全檔只有唯一一處定義的才收；同名定義不只一處就無法確定是哪個。
+    """
+    # 壓縮過的程式碼寫成 name=[…]，不帶空白；用 bytes.find 比正規式快得多
+    ident = set(b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                b"0123456789_$.")
+    out = {}
+    for name in names:
+        needle = name.encode("ascii", "ignore") + b"=["
+        hits, pos = [], blob.find(needle)
+        while pos != -1 and len(hits) < 2:
+            if pos == 0 or blob[pos - 1] not in ident:
+                start = pos + len(needle)
+                end = blob.find(b"]", start, start + 401)
+                if end != -1:
+                    hits.append(blob[start:end].decode("utf-8", "replace"))
+            pos = blob.find(needle, pos + 1)
+        if len(hits) == 1:
+            out[name] = hits[0]
+    return out
+
+
+def _resolve_all(names, blob, depth=2):
+    """變數名 → 字串清單；展開 ...變數 最多 depth 層，查不到的為 None。"""
+    raws, todo = {}, set(names)
+    for _ in range(depth + 1):
+        if not todo:
+            break
+        got = _find_defs(todo, blob)
+        raws.update(got)
+        todo = {s for raw in got.values() for s in _spreads(raw)} - set(raws)
+    out = {}
+    # 由內往外解：被展開的先解，最多跑 depth+1 輪
+    for _ in range(depth + 2):
+        for name, raw in raws.items():
+            if out.get(name) is None:
+                out[name] = _array_values(raw, out)
+    return out
 
 # 抽取結果的健全檢查：一定存在的鍵抓不到、或總數過低＝打包格式變了
 # 導致抽取失敗，不是這個版本真的沒有這些設定。
@@ -66,7 +144,10 @@ def _scan(path):
     with open(path, "rb") as fh:
         blob = fh.read()
 
-    keys, enums = {}, {}
+    keys = {}
+    # 每個鍵依出現順序記下枚舉的候選宣告：("vals", 清單)、("ref", 變數名)
+    # 或 ("lit", 含 ...變數 的陣列內容)；最後取第一個解得出值的
+    cands = {}
     for m in SCHEMA_RE.finditer(blob):
         key = m.group(1).decode("ascii", "ignore")
         desc = m.group(3).decode("utf-8", "replace")
@@ -74,13 +155,45 @@ def _scan(path):
         # 同一個鍵可能出現多次，取最長的說明
         if len(desc) > len(keys.get(key, "")):
             keys[key] = desc
-        if key not in enums:
-            em = ENUM_RE.match(m.group(0))
-            if em:
-                raw = em.group(1).decode("utf-8", "replace")
-                vals = re.findall(r"[\"']([^\"']{1,40})[\"']", raw)
-                if vals:
-                    enums[key] = vals
+        head = m.group(0)
+        em = ENUM_RE.match(head)
+        if em:
+            raw = em.group(1).decode("utf-8", "replace")
+            if _spreads(raw):
+                cands.setdefault(key, []).append(("lit", raw))
+                continue
+            vals = _array_values(raw, {})
+            if vals:
+                cands.setdefault(key, []).append(("vals", vals))
+                continue
+            # 陣列裡不是字串（如聯集 Ue([U(R1e),…])）：改看第一項指向的變數
+        rm = REF_RE.match(head)
+        if rm:
+            cands.setdefault(key, []).append(
+                ("ref", rm.group(1).decode("ascii", "ignore")))
+
+    # 指向變數的枚舉最後一起查，整個執行檔只多掃一兩趟
+    need = set()
+    for lst in cands.values():
+        for kind, v in lst:
+            if kind == "ref":
+                need.add(v)
+            elif kind == "lit":
+                need.update(_spreads(v))
+    defs = _resolve_all(need, blob)
+
+    enums = {}
+    for key, lst in cands.items():
+        for kind, v in lst:
+            if kind == "vals":
+                vals = v
+            elif kind == "ref":
+                vals = defs.get(v)
+            else:
+                vals = _array_values(v, defs)
+            if vals:
+                enums[key] = vals
+                break
     return keys, enums
 
 
@@ -94,7 +207,7 @@ def load(claude=None, force=False):
     try:
         st = os.stat(exe)
         # 結尾是抽取邏輯的版本；改了抽取方式要跟著改，讓舊快取作廢
-        sig = "%s|%d|%d|e2" % (exe, st.st_size, int(st.st_mtime))
+        sig = "%s|%d|%d|e3" % (exe, st.st_size, int(st.st_mtime))
     except OSError:
         sig = None
 

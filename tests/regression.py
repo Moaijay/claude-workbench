@@ -91,9 +91,11 @@ def main():
     # 執行期偵測的測試要用原函式；替身只給介面測試用
     real_running_sessions = launch.running_sessions
     real_running_status = launch.running_status
-    launch.launch = lambda cfg, item: opened.append(item["name"])
+    real_background = launch.background_sessions
+    launch.launch = lambda cfg, item, args=None: opened.append(item["name"])
     launch.running_sessions = lambda: set()
     launch.running_status = lambda: {}
+    launch.background_sessions = lambda: {}
 
     try:
         # ---------- 資料層 ----------
@@ -121,6 +123,22 @@ def main():
             hits = sessions.grep("D:\\測試")
             check("grep 找得到含反斜線的字串", hits.get(key) == 1,
                   str(hits.get(key)))
+            # Claude Code 自存的請求副本與系統提示快照不算命中；
+            # 跨好幾塊的長行、一塊裡多行都要算對
+            with open(tmp, "wb") as fh:
+                fh.write(b'{"type":"api-request-blob","message":"NEEDLE-q"}\n')
+                fh.write(b'{"parentUuid":"x","isSidechain":false,'
+                         b'"attachment":{"type":"prompt_snapshot",'
+                         b'"systemPrompt":"NEEDLE-q"}}\n')
+                fh.write(b'{"type":"user","message":"NEEDLE-q NEEDLE-q"}\n')
+                fh.write(b'{"type":"api-request","p":"'
+                         + b"y" * (3 << 20) + b'NEEDLE-q"}\n')
+                fh.write(b'{"type":"assistant","m":"'
+                         + b"z" * ((2 << 20) + 7) + b'NEEDLE-q"}\n')
+                fh.write(b'{"type":"user","message":"NEEDLE-q"}')
+            hits = sessions.grep("NEEDLE-q")
+            check("grep 跳過請求副本與系統提示快照、長行照算",
+                  hits.get(key) == 4, str(hits.get(key)))
         finally:
             os.remove(tmp)
             os.rmdir(tmpdir)
@@ -165,7 +183,7 @@ def main():
         import launch as launch_real
         if os.path.isdir(launch_real.SESSIONS_DIR):
             t0 = time.time()
-            live = real_running_sessions()
+            live = set(real_running_status())
             dt = (time.time() - t0) * 1000
             check("執行中偵測走執行期登錄", isinstance(live, set), type(live))
             check("執行中偵測夠快（<100ms）", dt < 100, "%.1f ms" % dt)
@@ -181,7 +199,7 @@ def main():
                     json.dump({"pid": os.getpid(), "procStart": "1",
                                "sessionId": "reus0000-dead-dead-dead-deaddeaddead"},
                               fh)
-                live2 = real_running_sessions()
+                live2 = set(real_running_status())
                 check("殘留登錄（行程已死）會被排除",
                       "dead0000-dead-dead-dead-deaddeaddead" not in live2)
                 check("殘留登錄（PID 已被重用）會被排除",
@@ -216,6 +234,85 @@ def main():
                                                "deaddeaddead"))
             finally:
                 os.remove(live_reg)
+
+            # 背景對話的行程也會登錄（kind 為 bg），但沒有視窗，不拿去找視窗
+            bg_reg = os.path.join(launch_real.SESSIONS_DIR, "4999995.json")
+            try:
+                with open(bg_reg, "w", encoding="utf-8") as fh:
+                    json.dump({"pid": os.getpid(), "procStart": str(ft[0]),
+                               "kind": "bg", "sessionId":
+                               "bgrg0000-dead-dead-dead-deaddeaddead"}, fh)
+                check("背景對話的登錄不拿去找視窗",
+                      "bgrg0000-dead-dead-dead-deaddeaddead"
+                      not in launch_real.running_pids() and
+                      "bgrg0000-dead-dead-dead-deaddeaddead"
+                      in real_running_status())
+            finally:
+                os.remove(bg_reg)
+
+            # 背景執行（claude --bg）：背景服務的 roster.json＋jobs 狀態
+            old_roster, old_jobs = launch_real.DAEMON_ROSTER, \
+                launch_real.JOBS_DIR
+            bgdir = tempfile.mkdtemp(prefix="wbbg")
+            try:
+                launch_real.DAEMON_ROSTER = os.path.join(bgdir, "roster.json")
+                launch_real.JOBS_DIR = os.path.join(bgdir, "jobs")
+                os.makedirs(os.path.join(launch_real.JOBS_DIR, "bb000001"))
+                with open(os.path.join(launch_real.JOBS_DIR, "bb000001",
+                                       "state.json"), "w",
+                          encoding="utf-8") as fh:
+                    json.dump({"state": "working",
+                               "detail": "  正在跑\n測試  "}, fh)
+                with open(launch_real.DAEMON_ROSTER, "w",
+                          encoding="utf-8") as fh:
+                    json.dump({"workers": {
+                        "bb000001": {"pid": os.getpid(),
+                                     "procStart": str(ft[0]),
+                                     "cliVersion": "2.1.300",
+                                     "sessionId":
+                                     "BB000001-dead-dead-dead-deaddeaddead"},
+                        "bb000002": {"pid": 4999996,
+                                     "sessionId":
+                                     "bb000002-dead-dead-dead-deaddeaddead"},
+                        "bb000003": {"pid": os.getpid(), "procStart": "1",
+                                     "sessionId":
+                                     "bb000003-dead-dead-dead-deaddeaddead"},
+                    }}, fh)
+                bg = real_background()
+                got = bg.get("bb000001-dead-dead-dead-deaddeaddead") or {}
+                check("背景對話：讀得到且 id 轉小寫",
+                      got.get("short") == "bb000001", bg)
+                check("背景對話：working 視為執行中",
+                      got.get("status") == "busy", got)
+                check("背景對話：行程已死或 PID 被重用的排除",
+                      len(bg) == 1, sorted(bg))
+                check("背景對話：帶出進度與版本",
+                      got.get("detail") == "正在跑 測試" and
+                      got.get("version") == "2.1.300" and
+                      got.get("state") == "working", got)
+                check("背景對話：舊版的挑得出來、版本不明不算",
+                      launch_real.outdated_background(bg, "2.1.316")
+                      == ["bb000001-dead-dead-dead-deaddeaddead"] and
+                      launch_real.outdated_background(bg, "2.1.300") == []
+                      and launch_real.outdated_background(bg, "") == [])
+                launch.background_sessions = real_background
+                try:
+                    st_all = real_running_status()
+                finally:
+                    launch.background_sessions = lambda: {}
+                check("執行中偵測含背景對話",
+                      st_all.get("bb000001-dead-dead-dead-deaddeaddead")
+                      == "busy")
+                with open(launch_real.DAEMON_ROSTER, "w",
+                          encoding="utf-8") as fh:
+                    fh.write("{壞掉")
+                check("roster 壞掉時回空、不拋例外", real_background() == {})
+                os.remove(launch_real.DAEMON_ROSTER)
+                check("沒有背景服務時回空", real_background() == {})
+            finally:
+                launch_real.DAEMON_ROSTER, launch_real.JOBS_DIR = \
+                    old_roster, old_jobs
+                shutil.rmtree(bgdir, ignore_errors=True)
 
             # 實機：正在跑的對話至少要有一條找得到終端機視窗
             live_now = launch_real.running_pids()
@@ -315,6 +412,131 @@ def main():
               sessions.context_window("claude-3-5-sonnet-20241022") == 200_000)
         check("脈絡視窗：Haiku 200K",
               sessions.context_window("claude-haiku-4-5") == 200_000)
+        check("脈絡視窗：Haiku 5.5 為 1M",
+              sessions.context_window("claude-haiku-5-5") == 1_000_000)
+
+        # 費率：5.5 世代（2026-11-01 依官方價目表對過）
+        def c(model, **u):
+            return sessions._usage_cost(u, model)
+        check("Opus 5.5 費率 4/20",
+              abs(c("claude-opus-5-5", input_tokens=1_000_000,
+                    output_tokens=1_000_000) - 24.0) < 1e-6)
+        check("Opus 5.5 快取讀取 $0.20（0.05 倍）",
+              abs(c("claude-opus-5-5",
+                    cache_read_input_tokens=1_000_000) - 0.20) < 1e-6)
+        check("Sonnet 5.5 費率 2/10、快取讀取 0.1 倍",
+              abs(c("claude-sonnet-5-5", input_tokens=1_000_000,
+                    output_tokens=1_000_000) - 12.0) < 1e-6 and
+              abs(c("claude-sonnet-5-5",
+                    cache_read_input_tokens=1_000_000) - 0.20) < 1e-6)
+        check("Haiku 5.5 短 prompt 0.10/0.50",
+              abs(c("claude-haiku-5-5", input_tokens=100_000,
+                    output_tokens=1_000_000) - 0.51) < 1e-6)
+        check("Haiku 5.5 prompt 超過 10 萬改用 0.50/2.50",
+              abs(c("claude-haiku-5-5", input_tokens=1000,
+                    cache_read_input_tokens=100_000,
+                    output_tokens=1_000_000)
+                  - (1000 * 0.5 + 100_000 * 0.05 + 1_000_000 * 2.5) / 1e6)
+              < 1e-9)
+        check("帶 [1m] 的模型 id 折回主名查價",
+              sessions._price_key("claude-opus-5[1m]") == "claude-opus-5" and
+              sessions._price_key("claude-opus-5-5[1m]") == "claude-opus-5-5")
+
+        # 官方 cost-state：涵蓋的那段改用 Claude Code 自己記的金額
+        csdir = os.path.join(sessions.PROJECTS, "zz-test-coststate")
+        os.makedirs(csdir, exist_ok=True)
+        csf = os.path.join(csdir, "00000000-0000-0000-0000-0000000000s1.jsonl")
+
+        def asst(mid, ts, out_tokens):
+            return {"type": "assistant", "timestamp": ts, "cwd": "X",
+                    "message": {"id": mid, "model": "claude-opus-5-5",
+                                "usage": {"output_tokens": out_tokens}}}
+
+        start = sessions._iso_ms("2026-10-01T00:00:00.000Z")
+
+        def write_cs(usd, unknown=False):
+            recs = [asst("m0", "2026-09-30T23:00:00.000Z", 1_000_000),  # $20 前
+                    asst("m1", "2026-10-01T01:00:00.000Z", 1_000_000),  # $20 中
+                    {"type": "cost-state", "startTime": start,
+                     "totalCostUSD": usd, "hasUnknownModelCost": unknown},
+                    asst("m2", "2026-10-02T01:00:00.000Z", 1_000_000)]  # $20 後
+            with open(csf, "w", encoding="utf-8") as fh:
+                for r in recs:
+                    fh.write(json.dumps(r) + "\n")
+            return sessions.read_one(csf)
+
+        try:
+            check("ISO 時戳轉毫秒含小數",
+                  sessions._iso_ms("2026-10-01T00:00:00.250Z") - start == 250
+                  and sessions._iso_ms("壞") is None)
+            ci = write_cs(30.0)
+            off = ci.get("official") or {}
+            check("cost-state 只涵蓋 startTime 之後、紀錄之前的回覆",
+                  abs(off.get("covered", 0) - 20.0) < 1e-6 and
+                  abs(ci["cost"] - 60.0) < 1e-6, off)
+            check("官方數字較高時改用官方（前段＋官方＋後段）",
+                  abs(sessions.with_official(ci) - 70.0) < 1e-6,
+                  sessions.with_official(ci))
+            # 母檔已含子代理：60 + 5（期間內）+ 7（之後的另一次執行）
+            sub = {"cost": 5.0, "first_ms": start + 3600_000 + 1000}
+            sub_late = {"cost": 7.0,
+                        "first_ms": start + 86400_000 + 3600_000}
+            got = sessions.with_official(dict(ci, cost=72.0), [sub, sub_late])
+            check("該次執行期間的子代理算進官方涵蓋範圍",
+                  abs(got - 77.0) < 1e-6, got)
+            ci = write_cs(5.0)
+            check("官方數字較低時保留估算（只往上修正）",
+                  abs(sessions.with_official(ci) - 60.0) < 1e-6)
+            ci = write_cs(99.0, unknown=True)
+            check("官方標示有未知模型時不採用",
+                  ci.get("official") is None and
+                  abs(sessions.with_official(ci) - 60.0) < 1e-6)
+        finally:
+            os.remove(csf)
+            os.rmdir(csdir)
+
+        # 開新視窗前清掉子行程標記（含 2.1.3xx 新增的）
+        old_env = dict(os.environ)
+        try:
+            os.environ.update({"CLAUDE_CODE_MESSAGING_SOCKET": "x",
+                               "CLAUDE_CODE_MESSAGING_TOKEN": "x",
+                               "CLAUDE_CODE_SESSION_ATTENDED": "1",
+                               "AI_AGENT": "claude-code_2-1-316_agent"})
+            env = launch.clean_env()
+            check("子行程標記全部移除",
+                  not any(k in env for k in (
+                      "CLAUDE_CODE_MESSAGING_SOCKET",
+                      "CLAUDE_CODE_MESSAGING_TOKEN",
+                      "CLAUDE_CODE_SESSION_ATTENDED", "AI_AGENT")))
+            os.environ["AI_AGENT"] = "my-own-agent"
+            check("使用者自己的 AI_AGENT 保留",
+                  launch.clean_env().get("AI_AGENT") == "my-own-agent")
+        finally:
+            os.environ.clear()
+            os.environ.update(old_env)
+        cmd = launch.build_command({"claude": "claude"},
+                                   {"session": "x"}, ["attach", "ab12cd34"])
+        check("接上背景對話的指令", cmd[-1].endswith("attach ab12cd34"), cmd)
+        calls = []
+        real_run = launch._run_claude
+        launch._run_claude = (lambda cfg, cwd, args, timeout=180:
+                              calls.append((cwd, args)) or (True, ""))
+        try:
+            it = {"session": "s1", "cwd": "C:\\x", "name": "n",
+                  "model": "haiku", "background": True}
+            launch.start_background({"permission_mode": ""}, it)
+            launch.respawn_background({})
+        finally:
+            launch._run_claude = real_run
+        check("在背景開＝claude --bg --resume，帶上該條的模型",
+              calls and calls[0] == ("C:\\x", ["--bg", "--resume", "s1",
+                                                "--model", "haiku"]), calls)
+        check("背景對話改用新版＝claude respawn --all",
+              len(calls) == 2 and calls[1][1] == ["respawn", "--all"], calls)
+        fa = launch.fork_args({"permission_mode": ""},
+                              {"session": "s1", "cwd": "X", "new": True})
+        check("分出一份＝續接原對話加 --fork-session",
+              fa == ["--resume", "s1", "--fork-session"], fa)
 
         # 預覽：檔尾訊息抽取
         pvdir = os.path.join(sessions.PROJECTS, "zz-test-preview")
@@ -535,6 +757,32 @@ def main():
         else:
             print("  [--] 未安裝 claude，略過 schema 抽取檢查")
         check("_sane 擋空結果", not claudeschema._sane({}))
+        # 抽取邏輯：用合成的打包程式碼片段測 2.1.3xx 的延遲宣告與變數枚舉
+        synth = os.path.join(sandbox_dir, "synth.bin")
+        with open(synth, "wb") as fh:
+            fh.write(
+                b'aZ=["dark","light"],bZ=["auto",...aZ],cZ=["x","y"];'
+                b'dup=["p"];dup=["q"];'
+                b'o={oldStyle:Nr(["a","b"]).optional().describe("old"),'
+                b'lazyEnum:()=>U(["l1","l2"]).optional().describe("lazy"),'
+                b'refEnum:()=>U(cZ).optional().describe("ref"),'
+                b'unionEnum:()=>Ue([U(bZ),o().startsWith("c:")]).optional()'
+                b'.describe("union"),'
+                b'dupEnum:()=>U(dup).optional().describe("dup"),'
+                b'notEnum:()=>Ue([U(zz),o()]).optional().describe("no"),'
+                b'plain:()=>o().optional().describe("plain")};')
+        sk, se = claudeschema._scan(synth)
+        check("抽取：舊式與延遲宣告的鍵都抓得到",
+              all(k in sk for k in ("oldStyle", "lazyEnum", "refEnum",
+                                    "unionEnum", "plain")), sorted(sk))
+        check("抽取：字面枚舉",
+              se.get("oldStyle") == ["a", "b"] and
+              se.get("lazyEnum") == ["l1", "l2"], se)
+        check("抽取：指向變數與展開的枚舉",
+              se.get("refEnum") == ["x", "y"] and
+              se.get("unionEnum") == ["auto", "dark", "light"], se)
+        check("抽取：定義不唯一或查不到的變數不猜",
+              "dupEnum" not in se and "notEnum" not in se, se)
         old_cache, old_scan = claudeschema.CACHE, claudeschema._scan
         try:
             claudeschema.CACHE = os.path.join(sandbox_dir, "schema-test.json")
@@ -709,6 +957,65 @@ def main():
                         timeout=5, root=root)
         check("開啟後記為執行中", ok)
         app.running = set()
+
+        # 「立即啟動」：設成在背景開的不開視窗；雙擊開啟仍開視窗
+        bg_started = []
+        real_start_bg = launch.start_background
+        launch.start_background = (lambda cfg, item:
+                                   bg_started.append(item["name"])
+                                   or (True, ""))
+        real_items_bg = app.items
+        try:
+            two = free[:2]
+            app.items = [dict(app.item_for(two[0]), name="前景甲"),
+                         dict(app.item_for(two[1]), name="背景乙",
+                              background=True)]
+            app.running = set()
+            opened.clear()
+            app.open_many(list(app.items), confirm=False,
+                          honor_background=True)
+            ok = wait_until(lambda: len(opened) + len(bg_started) == 2,
+                            timeout=10, root=root)
+            check("立即啟動：背景項目在背景開、其餘開視窗",
+                  ok and opened == ["前景甲"] and bg_started == ["背景乙"],
+                  (opened, bg_started))
+            app.running = set()
+            app._just_launched = {}
+            opened.clear()
+            bg_started.clear()
+            app.open_many([app.items[1]], confirm=False)
+            ok = wait_until(lambda: opened, timeout=10, root=root)
+            check("雙擊開啟背景項目仍開視窗",
+                  ok and opened == ["背景乙"] and bg_started == [],
+                  (opened, bg_started))
+            app.running = {two[1].lower()}
+            opened.clear()
+            app.open_many(list(app.items[1:]), confirm=False,
+                          honor_background=True)
+            for _ in range(20):
+                root.update()
+                time.sleep(0.05)
+            check("立即啟動：已在背景跑的不去接上",
+                  opened == [] and bg_started == [], (opened, bg_started))
+            app.fill_picked()
+            names = [app.picked.item(r, "text")
+                     for r in app.picked.get_children()]
+            check("啟動清單標出在背景開的項目",
+                  any(i18n.tr("　（啟動時在背景開）") in n or
+                      i18n.tr("　（背景執行）") in n for n in names), names)
+        finally:
+            launch.start_background = real_start_bg
+            app.items = real_items_bg
+            app.running = set()
+            app._just_launched = {}
+            app.fill_picked()
+        check("右鍵選單有分出一份與桌面版",
+              app.tree_menu.entrycget(app._tm_idx["fork"], "label")
+              == i18n.tr("分出一份接著聊") and
+              app.tree_menu.entrycget(app._tm_idx["desktop"], "label")
+              == i18n.tr("在 Claude 桌面版開啟") and
+              app.picked_menu.entrycget(app._pm_idx["background"], "label")
+              == i18n.tr("啟動時在背景開（不開視窗）"))
 
         # 右鍵選單以名字記索引，加項目不會讓 entryconfigure 指錯位置
         check("右鍵選單索引對得上標籤",
