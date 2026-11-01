@@ -1308,12 +1308,14 @@ class App(ttk.Frame):
             tags = ()
             name = item["name"]
             status = self.running_status.get(item["session"].lower())
+            in_bg = item["session"].lower() in self.background
             if status:
                 tags = ("busy",) if status == "busy" else ("running",)
                 name = RUN_MARK + name
-                if item["session"].lower() in self.background:
+                if in_bg:
                     name += tr("　（背景執行）")
-            elif item.get("background"):
+            # 設成在背景開、但此刻不是在背景跑（沒開，或開在一般視窗）時標出設定
+            if item.get("background") and not in_bg:
                 name += tr("　（啟動時在背景開）")
             if s is None and not sessions.find_file(item["session"]):
                 tags, name = ("stale",), item["name"] + tr("  ⚠ 找不到")

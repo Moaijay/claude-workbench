@@ -997,16 +997,28 @@ def main():
                 time.sleep(0.05)
             check("立即啟動：已在背景跑的不去接上",
                   opened == [] and bg_started == [], (opened, bg_started))
+            # 開在一般視窗裡時也要標出這個設定；真的在背景跑時改標背景執行
+            app.background = set()
+            app.running_status = {two[1].lower(): "idle"}
             app.fill_picked()
             names = [app.picked.item(r, "text")
                      for r in app.picked.get_children()]
             check("啟動清單標出在背景開的項目",
-                  any(i18n.tr("　（啟動時在背景開）") in n or
-                      i18n.tr("　（背景執行）") in n for n in names), names)
+                  i18n.tr("　（啟動時在背景開）") in names[1] and
+                  i18n.tr("　（啟動時在背景開）") not in names[0], names)
+            app.background = {two[1].lower()}
+            app.fill_picked()
+            names = [app.picked.item(r, "text")
+                     for r in app.picked.get_children()]
+            check("在背景跑時標背景執行",
+                  i18n.tr("　（背景執行）") in names[1] and
+                  i18n.tr("　（啟動時在背景開）") not in names[1], names)
         finally:
             launch.start_background = real_start_bg
             app.items = real_items_bg
             app.running = set()
+            app.running_status = {}
+            app.background = set()
             app._just_launched = {}
             app.fill_picked()
         check("右鍵選單有分出一份與桌面版",
