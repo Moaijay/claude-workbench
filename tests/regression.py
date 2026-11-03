@@ -373,6 +373,134 @@ def main():
                     os.rmdir(d)
             os.rmdir(target)
 
+        # 資料夾搬家：記下新位置、撞名的專案目錄、找新位置、複製記憶
+
+        base = tempfile.mkdtemp(prefix="wbreloc")
+        made_proj = []
+        try:
+            old_dir = os.path.join(base, "甲乙")      # 已不存在的舊位置
+            new_dir = os.path.join(base, "分類", "甲乙")
+            same_dir = os.path.join(base, "丙丁")     # 專案目錄名與舊位置相同
+            os.makedirs(os.path.join(new_dir, "子"))
+            os.makedirs(same_dir)
+            rid = "00000000-0000-0000-0000-0000000000r1"
+            old_proj = os.path.join(sessions.PROJECTS,
+                                    sessions.project_dir_name(old_dir))
+            check("中文資料夾名換成專案目錄名會撞名",
+                  sessions.project_dir_name(old_dir)
+                  == sessions.project_dir_name(same_dir))
+            if os.path.exists(old_proj):
+                raise RuntimeError("測試用專案目錄已存在：" + old_proj)
+            os.makedirs(old_proj)
+            made_proj.append(old_proj)
+            rf = os.path.join(old_proj, rid + ".jsonl")
+            with open(rf, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps({"type": "user", "cwd": old_dir,
+                                     "message": {"content": "hi"}},
+                                    ensure_ascii=False))     # 沒有結尾換行
+            check("搬家前以檔頭的資料夾為準",
+                  sessions.read_one(rf)["cwd"] == old_dir)
+
+            ok6, err6 = sessions.move_session(rid, same_dir, old_dir)
+            check("撞名的資料夾：不搬檔、只記下新位置",
+                  ok6 and os.path.exists(rf) and
+                  sessions.read_one(rf)["cwd"] == same_dir, err6)
+            lines = open(rf, encoding="utf-8").read().splitlines()
+            rec = json.loads(lines[-1])
+            check("新位置記錄與 Claude Code 同格式、補上換行",
+                  len(lines) == 2 and rec == {"type": "relocated",
+                                              "sessionId": rid,
+                                              "relocatedCwd": same_dir},
+                  lines[-1])
+            ok7, err7 = sessions.move_session(rid, same_dir, same_dir)
+            check("已在該資料夾會拒絕", not ok7, err7)
+
+            new_proj = os.path.join(sessions.PROJECTS,
+                                    sessions.project_dir_name(new_dir))
+            if not os.path.exists(new_proj):
+                made_proj.append(new_proj)
+            ok8, err8 = sessions.move_session(rid, new_dir, same_dir)
+            moved_f = os.path.join(new_proj, rid + ".jsonl")
+            check("搬到別的專案目錄並記下新位置",
+                  ok8 and os.path.exists(moved_f) and not os.path.exists(rf)
+                  and sessions.read_one(moved_f)["cwd"] == new_dir, err8)
+
+            # 同一條對話被複製到兩個專案目錄：只列一次、取最近寫入的那份
+            dup_proj = os.path.join(sessions.PROJECTS, "zz-test-dup")
+            os.makedirs(dup_proj, exist_ok=True)
+            made_proj.append(dup_proj)
+            with open(moved_f, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"type": "assistant", "message": {
+                    "id": "mr1", "model": "claude-opus-5",
+                    "usage": {"input_tokens": 10, "output_tokens": 1}}})
+                    + "\n")
+            dup_f = os.path.join(dup_proj, rid + ".jsonl")
+            shutil.copy(moved_f, dup_f)
+            old_t = time.time() - 3600
+            os.utime(dup_f, (old_t, old_t))
+            listed = [x for x in sessions.scan() if x["id"] == rid]
+            check("同一條對話有兩份：只列一次、取最近的",
+                  len(listed) == 1 and
+                  os.path.normcase(listed[0]["path"])
+                  == os.path.normcase(moved_f) and
+                  os.path.normcase(sessions.find_file(rid))
+                  == os.path.normcase(moved_f),
+                  [x["path"] for x in listed])
+
+            found = sessions.find_moved(
+                [old_dir, os.path.join(old_dir, "子"),
+                 os.path.join(base, "不存在"), new_dir],
+                roots={os.path.splitdrive(base)[0].upper(): base})
+            check("找到搬走的資料夾與其子資料夾",
+                  found.get(old_dir) == [new_dir] and
+                  found.get(os.path.join(old_dir, "子"))
+                  == [os.path.join(new_dir, "子")], found)
+            check("找不到的回空清單、還在的不列",
+                  found.get(os.path.join(base, "不存在")) == [] and
+                  new_dir not in found, found)
+            os.makedirs(os.path.join(base, "分類", "甲乙", "改名後", "深"))
+            got = sessions.find_moved(
+                [os.path.join(old_dir, "舊名", "深")],
+                roots={os.path.splitdrive(base)[0].upper(): base})
+            os.makedirs(os.path.join(base, "生活", "日記-diary", "Entries"))
+            os.makedirs(os.path.join(base, "生活", "作業-hw"))
+            os.makedirs(os.path.join(base, "生活", "作業-冷啟動"))
+            os.makedirs(os.path.join(base, "封存", "待刪", "網頁"))
+            os.makedirs(os.path.join(base, "賺錢", "網頁"))
+            r2 = sessions.find_moved(
+                [os.path.join(base, "日記", "Entries"),
+                 os.path.join(base, "作業"), os.path.join(base, "網頁")],
+                roots={os.path.splitdrive(base)[0].upper(): base})
+            diary = os.path.join(base, "生活", "日記-diary", "Entries")
+            check("改名加了字尾（日記 → 日記-diary）也找得到",
+                  r2.get(os.path.join(base, "日記", "Entries")) == [diary]
+                  and sessions.likely(os.path.join(base, "日記"), [diary]),
+                  r2)
+            check("同名不只一個、或像待刪副本的：不算有把握，副本排後面",
+                  not sessions.likely(base, r2.get(os.path.join(base, "作業")))
+                  and r2.get(os.path.join(base, "網頁"))[0]
+                  == os.path.join(base, "賺錢", "網頁") and
+                  not sessions.likely(
+                      base, [os.path.join(base, "封存", "待刪", "網頁")]), r2)
+            check("中間那層改了名也找得到最後一層",
+                  list(got.values()) == [[os.path.join(new_dir, "改名後",
+                                                       "深")]], got)
+
+            mem = os.path.join(old_proj, "memory")
+            os.makedirs(mem)
+            open(os.path.join(mem, "MEMORY.md"), "w").write("x")
+            check("專案記憶複製到新位置",
+                  sessions.copy_memory(old_dir, new_dir) and
+                  os.path.exists(os.path.join(new_proj, "memory",
+                                              "MEMORY.md")) and
+                  os.path.exists(os.path.join(mem, "MEMORY.md")))
+            check("新位置已有記憶就不覆蓋",
+                  not sessions.copy_memory(old_dir, new_dir))
+        finally:
+            for d in made_proj:
+                shutil.rmtree(d, ignore_errors=True)
+            shutil.rmtree(base, ignore_errors=True)
+
         # 費率（2026-09-21 依官方價目表對過）
         check("Fable 5.1 有費率資料",
               "claude-fable-5-1" in sessions.PRICING and
@@ -831,7 +959,7 @@ def main():
         root.geometry("1320x820+80+80")
         app = st.App(root)
         root.update()
-        ok = wait_until(lambda: app.sessions, root=root)
+        ok = wait_until(lambda: app.sessions, timeout=120, root=root)
         check("背景掃描完成", ok, "%d 條" % len(app.sessions))
 
         check("多選模式", str(app.tree.cget("selectmode")) == "extended")
@@ -1028,6 +1156,100 @@ def main():
               == i18n.tr("在 Claude 桌面版開啟") and
               app.picked_menu.entrycget(app._pm_idx["background"], "label")
               == i18n.tr("啟動時在背景開（不開視窗）"))
+
+        # 資料夾搬家：清單標出、一鍵改到新位置、啟動清單跟著改
+        ui_base = tempfile.mkdtemp(prefix="wbui")
+        ui_proj = os.path.join(sessions.PROJECTS, "zz-test-uireloc")
+        real_sessions_r, real_items_r = app.sessions, app.items
+        try:
+            gone = os.path.join(ui_base, "舊的")
+            now = os.path.join(ui_base, "新家", "舊的")
+            os.makedirs(now)
+            os.makedirs(ui_proj)
+            uid = "00000000-0000-0000-0000-0000000000u1"
+            uf = os.path.join(ui_proj, uid + ".jsonl")
+            with open(uf, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps({"type": "user", "cwd": gone, "message":
+                                     {"content": "zz 搬家測試"}},
+                                    ensure_ascii=False) + "\n")
+            uinfo = dict(sessions.read_one(uf), cost=0.0)
+            app.sessions = [uinfo]
+            app.items = [{"name": "搬家測試", "cwd": gone, "session": uid}]
+            app.moved = {os.path.normpath(gone): [now]}
+            app.fill_tree()
+            heads = [app.tree.item(r, "text") for r in app.tree.get_children()]
+            check("清單標出資料夾已搬到哪",
+                  any(i18n.tr("　⚠ 已搬到 %s") % now in h for h in heads),
+                  heads)
+            rows = app._moved_rows()
+            check("搬家清單列出舊位置、新位置與對話數",
+                  len(rows) == 1 and rows[0]["new"] == now and
+                  rows[0]["count"] == 1, rows)
+            app.relocate_folders([(os.path.normpath(gone), now)],
+                                 report=False)
+            moved_u = sessions.find_file(uid)
+            check("一鍵改到新位置：紀錄搬過去並記下新位置、啟動清單跟著改",
+                  moved_u and sessions.read_one(moved_u)["cwd"] == now and
+                  app.items[0]["cwd"] == now and
+                  os.path.normpath(gone) not in app.moved,
+                  (moved_u, app.items))
+            wait_until(lambda: not app._scan_busy, timeout=120, root=root)
+
+            # 掃描後自動跟過去：有把握的直接搬，開著的等關掉，失敗的不一直重試
+            gone2 = os.path.join(ui_base, "舊的2")
+            now2 = os.path.join(ui_base, "新家", "舊的2")
+            os.makedirs(now2)
+            uid2 = "00000000-0000-0000-0000-0000000000u2"
+            uf2 = os.path.join(ui_proj, uid2 + ".jsonl")
+            with open(uf2, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps({"type": "user", "cwd": gone2, "message":
+                                     {"content": "zz 自動搬家測試"}},
+                                    ensure_ascii=False) + "\n")
+            u2 = dict(sessions.read_one(uf2), cost=0.0)
+            app.sessions, app.items = [u2], []
+            key2 = os.path.normpath(gone2)
+            real_running = app.running
+            app.running = set(real_running) | {uid2}
+            app.moved = {key2: [now2]}
+            waited = app._auto_relocate()
+            check("開著的對話不自動搬",
+                  not waited and sessions.read_one(uf2)["cwd"] == gone2,
+                  waited)
+            app.running = real_running
+            app.moved = {key2: [now2]}
+            did = app._auto_relocate()
+            f2 = sessions.find_file(uid2)
+            check("掃描後有把握的搬家自動跟過去",
+                  did and f2 and sessions.read_one(f2)["cwd"] == now2 and
+                  app._auto_note and "1" in app._auto_note[0],
+                  (did, f2, app._auto_note))
+            wait_until(lambda: not app._scan_busy, timeout=120, root=root)
+            app.sessions, app.items = [dict(u2, cwd=gone2)], []
+            bad = os.path.join(ui_base, "沒有這個")
+            app.moved = {key2: [bad]}
+            first = app._auto_relocate()
+            app.moved = {key2: [bad]}
+            again = app._auto_relocate()
+            check("自動搬失敗的不會一直重試",
+                  not first and not again and (key2, bad) in app._auto_tried,
+                  (first, again))
+            app._auto_tried.discard((key2, bad))
+            app._auto_note = None
+        finally:
+            app.sessions, app.items = real_sessions_r, real_items_r
+            app.moved = {}
+            for gid in ("00000000-0000-0000-0000-0000000000u1",
+                        "00000000-0000-0000-0000-0000000000u2"):
+                f = sessions.find_file(gid)
+                if f:
+                    os.remove(f)
+                    d = os.path.dirname(f)
+                    if not os.listdir(d):
+                        os.rmdir(d)
+            shutil.rmtree(ui_proj, ignore_errors=True)
+            shutil.rmtree(ui_base, ignore_errors=True)
+            app.save()
+            app.fill_tree()
 
         # 右鍵選單以名字記索引，加項目不會讓 entryconfigure 指錯位置
         check("右鍵選單索引對得上標籤",

@@ -99,7 +99,7 @@ is the launch list; top to bottom is the order sessions open in.
 |---|---|
 | **File** | New session… (Ctrl+N) / Add from resume command… / Save (Ctrl+S) / Exit |
 | **View** | Show cost / Show context usage / Search session contents / Last 30 days only / Show archived / Show handed-off |
-| **Tools** | Claude Code settings… (Ctrl+,) / Workbench options… / Move background sessions to new Claude / Open at startup / Program folder / Error log |
+| **Tools** | Claude Code settings… (Ctrl+,) / Workbench options… / Move background sessions to new Claude / Find moved folders… / Open at startup / Program folder / Error log |
 | **Help** | Check for updates / About |
 
 Actions that already have a button (add, rename, reorder, remove, rescan,
@@ -224,6 +224,45 @@ records to that session's log. It is handled locally, without a model call.
 resumed from the `claude -r` picker there. Within one drive this is a rename, an atomic operation that leaves the
 contents unchanged. A session that is currently open is refused; a session in
 the launch list has its folder updated to match.
+
+The new folder is also recorded at the end of the log, as the same
+`relocated` record Claude Code writes when a session changes folder. A
+session's folder is otherwise the one written at the top of its log, so
+without it the list would keep showing the old folder, and Claude Code's
+`claude -r` picker would hide the session whenever the old and new folders map
+to the same project folder name (non-ASCII characters all become hyphens, so
+`D:\日記` and `D:\生活` collide).
+
+## Folders that were moved or renamed
+
+If you reorganize folders yourself (in Explorer), sessions still point to the
+old paths and cannot be opened from there. The workbench notices: after each
+scan it looks for sessions whose folder no longer exists and searches the same
+drive for where it went — a folder with the same name (also one renamed with a
+suffix, such as `日記` → `日記-diary`) with the same subfolders below it. If a
+whole folder was moved and a folder inside it was renamed, it looks for the
+last folder by name inside the new location.
+
+- **Confident matches are followed automatically** on every scan (startup,
+  Refresh / F5, and when session files change): a single match on the same
+  drive that does not look like a backup or a to-delete copy. The folder's
+  sessions are moved there (the same operation as "Move to another folder"),
+  launch list items follow, and the folder's project memory
+  (`~\.claude\projects\<folder>\memory`) is copied to the new location if the
+  new one has none. The status bar says what was moved for two minutes.
+- Sessions that are open are left until they are closed; the next scan
+  after that moves them. A move that fails is not retried until the
+  workbench is reopened.
+- Other cases (several matches, another drive, a backup-looking location)
+  are not moved by themselves. The folder rows show **⚠ moved to …** or
+  **⚠ folder no longer exists**, and the status bar says how many need
+  checking. **Tools → Find moved folders…** lists them with the location found
+  and the number of sessions, marked "please check"; check a row or set it
+  with "Choose location…", then Move.
+- Opening a session whose folder is gone offers to move that folder's sessions
+  to the location found, then opens it.
+- If the same session log exists in two project folders (for example copied
+  by hand), the list shows it once, using the most recently written copy.
 
 ## Cost
 
@@ -475,7 +514,7 @@ the default size is used.
 - **Cache location**: the scan cache and schema cache live in the user data
   directory, so the install folder can be read-only.
 - **Regression tests**: `python tests/regression.py` runs against a sandbox
-  copy of the config file and does not disturb a workbench in use. 171 checks,
+  copy of the config file and does not disturb a workbench in use. 191 checks,
   including the invariant that no session log is ever deleted or truncated.
   They also run on GitHub Actions (Windows, Python 3.9 and 3.13) on every
   push; checks that need an installed `claude` binary are skipped there and

@@ -634,6 +634,8 @@ def main():
         note = ""
         if already:
             note = tr("\n\n已開啟而略過：%s") % tr("、").join(already)
+        if any(not os.path.isdir(i["cwd"]) for i in items):
+            note += "\n\n" + tr("資料夾搬過家的話：開工作台 → 工具 → 找回搬走的資料夾。")
         alert(tr("已開啟 %d 個；下列未開啟：\n\n%s%s")
               % (opened, "\n".join(missing), note))
     elif already and opened == 0 and unfocused:

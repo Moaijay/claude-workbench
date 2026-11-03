@@ -381,6 +381,46 @@ EN = {
     "找不到對話紀錄": "Session log not found",
     "目標資料夾不存在：%s": "Target folder does not exist: %s",
     "已在該資料夾": "Already in that folder",
+    # ---------------------------------------------------------- 資料夾搬家
+    "找回搬走的資料夾": "Find moved folders",
+    "找回搬走的資料夾…": "Find moved folders…",
+    "下面這些資料夾已經不在原本的位置。勾選的會把裡面的對話改到新位置，之後從新位置續接；對話內容不變。\n新位置不對或沒找到的，選取那一列後按「改選位置…」。":
+        "These folders are no longer where they were. Sessions in the checked "
+        "ones are moved to the new location and resume from there; their "
+        "content is unchanged.\nIf a new location is wrong or missing, select "
+        "the row and click \"Choose location…\".",
+    "原本位置": "Was at",
+    "現在位置": "Now at",
+    "改選位置…": "Choose location…",
+    "搬過去": "Move",
+    "　（另有 %d 個同名，請確認）": "  (%d more with the same name; please check)",
+    "（沒找到：可能刪掉或改了名字）": "(not found: deleted or renamed?)",
+    "　（請確認）": "  (please check)",
+    "「%s」現在在哪裡？": "Where is \"%s\" now?",
+    "%d 個資料夾搬了家、要確認新位置（工具 → 找回搬走的資料夾）":
+        "%d moved folders need their new location checked (Tools → Find moved folders)",
+    "資料夾搬了家，已自動把 %d 條對話改到新位置（%s）":
+        "Folders moved; %d sessions were updated to the new location (%s)",
+    "　⚠ 已搬到 %s": "  ⚠ moved to %s",
+    "　⚠ 資料夾不在了": "  ⚠ folder no longer exists",
+    "尋找搬走的資料夾…": "Looking for moved folders…",
+    "所有對話的資料夾都還在原位。": "Every session's folder is still in place.",
+    "搬過家的話，可以在「工具 → 找回搬走的資料夾」指定新位置。":
+        "If it was moved, you can point to its new location in "
+        "Tools → Find moved folders.",
+    "「%s」不在了，看起來搬到了：\n\n%s\n\n要把這個資料夾的對話都改到新位置再開啟嗎？":
+        "\"%s\" no longer exists. It looks like it moved to:\n\n%s\n\n"
+        "Move this folder's sessions to the new location and open?",
+    "%s：目標資料夾不存在": "%s: target folder does not exist",
+    "已把 %d 條對話改到新位置": "Moved %d sessions to their new location",
+    "已把 %d 條對話改到新位置。": "Moved %d sessions to their new location.",
+    "專案記憶也複製了 %d 個資料夾的份。":
+        "Project memory was copied for %d folders as well.",
+    "開著的沒有搬（關掉後再做一次）：%s":
+        "Open sessions were not moved (close them and run this again): %s",
+    "沒搬成：\n%s": "Not moved:\n%s",
+    "資料夾搬過家的話：開工作台 → 工具 → 找回搬走的資料夾。":
+        "If folders were moved: open the Workbench → Tools → Find moved folders.",
     "目標已存在同名紀錄": "A log with the same id already exists at the target",
     "設定檔損壞（%s）\n已保留於 %s\n目前載入預設值":
         "Config file corrupt (%s)\nPreserved at %s\nDefaults loaded",

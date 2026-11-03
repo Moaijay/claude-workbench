@@ -348,6 +348,132 @@ class NewSessionDialog(tk.Toplevel):
         return "" if not v or v == self.default_label else v
 
 
+class MovedFoldersDialog(tk.Toplevel):
+    """資料夾搬過家：列出不在了的資料夾與找到的新位置，勾選後把對話搬過去。"""
+
+    ON, OFF = "☑ ", "☐ "
+
+    def __init__(self, master, rows):
+        super().__init__(master)
+        self.rows = rows            # [{"old", "new", "cands", "count"}]
+        # 有把握的（唯一、同一顆磁碟、不像副本）才預設勾選
+        self.checked = {n for n, r in enumerate(rows)
+                        if r["new"] and sessions.likely(r["old"], r["cands"])}
+        self.result = None
+        self.title(tr("找回搬走的資料夾"))
+        self.transient(master)
+        set_icon(self)
+
+        body = ttk.Frame(self, padding=16)
+        body.grid(sticky="nsew")
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+        ttk.Label(body, wraplength=760, justify="left",
+                  text=tr("下面這些資料夾已經不在原本的位置。勾選的會把裡面的"
+                          "對話改到新位置，之後從新位置續接；對話內容不變。\n"
+                          "新位置不對或沒找到的，選取那一列後按「改選位置…」。")
+                  ).grid(row=0, column=0, columnspan=2, sticky="w")
+
+        frame = ttk.Frame(body)
+        frame.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(10, 0))
+        self.tree = ttk.Treeview(frame, columns=("new", "count"),
+                                 height=min(14, max(4, len(rows))),
+                                 selectmode="browse")
+        self.tree.heading("#0", text=tr("原本位置"), anchor="w")
+        self.tree.heading("new", text=tr("現在位置"), anchor="w")
+        self.tree.heading("count", text=tr("對話"), anchor="e")
+        self.tree.column("#0", width=380)
+        self.tree.column("new", width=440)
+        self.tree.column("count", width=60, anchor="e", stretch=False)
+        sb = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        sb.grid(row=0, column=1, sticky="ns")
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+        self.tree.tag_configure("none", foreground="#888888")
+        for n, _ in enumerate(rows):
+            self.tree.insert("", "end", iid=str(n))
+            self._draw(n)
+        self.tree.bind("<Button-1>", self._click)
+        self.tree.bind("<space>", lambda _: self._toggle(self._focus()))
+        self.tree.bind("<Double-1>", lambda _: self.choose())
+
+        btns = ttk.Frame(body)
+        btns.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        ttk.Button(btns, text=tr("改選位置…"), command=self.choose).pack(
+            side="left")
+        self.ok_btn = ttk.Button(btns, text=tr("搬過去"), command=self.ok)
+        self.ok_btn.pack(side="right")
+        ttk.Button(btns, text=tr("取消"), command=self.destroy).pack(
+            side="right", padx=8)
+        body.rowconfigure(1, weight=1)
+        body.columnconfigure(0, weight=1)
+        self._update_ok()
+        self.bind("<Escape>", lambda _: self.destroy())
+        self.grab_set()
+
+    def _draw(self, n):
+        r = self.rows[n]
+        mark = self.ON if n in self.checked else self.OFF
+        if r["new"]:
+            new = r["new"]
+            if r["new"] == (r["cands"] or [None])[0]:
+                if len(r["cands"]) > 1:
+                    new += tr("　（另有 %d 個同名，請確認）") % (len(r["cands"]) - 1)
+                elif not sessions.likely(r["old"], r["cands"]):
+                    new += tr("　（請確認）")
+        else:
+            new = tr("（沒找到：可能刪掉或改了名字）")
+        self.tree.item(str(n), text=mark + r["old"],
+                       values=(new, r["count"] or ""),
+                       tags=() if r["new"] else ("none",))
+
+    def _focus(self):
+        f = self.tree.focus()
+        return int(f) if f else None
+
+    def _click(self, event):
+        # 點在勾選框（文字最前面）上才切換，點其他地方只是選取
+        row = self.tree.identify_row(event.y)
+        if not row or self.tree.identify_column(event.x) != "#0":
+            return
+        x = self.tree.bbox(row, "#0")
+        if x and event.x - x[0] < 34:
+            self._toggle(int(row))
+
+    def _toggle(self, n):
+        if n is None or not self.rows[n]["new"]:
+            return
+        self.checked ^= {n}
+        self._draw(n)
+        self._update_ok()
+
+    def _update_ok(self):
+        self.ok_btn.configure(state="normal" if self.checked else "disabled")
+
+    def choose(self):
+        n = self._focus()
+        if n is None:
+            return
+        r = self.rows[n]
+        start = r["new"] or os.path.splitdrive(r["old"])[0] + os.sep
+        d = filedialog.askdirectory(parent=self, title=tr("「%s」現在在哪裡？")
+                                    % os.path.basename(r["old"]),
+                                    initialdir=start)
+        if not d:
+            return
+        r["new"] = os.path.normpath(d)
+        self.checked.add(n)
+        self._draw(n)
+        self._update_ok()
+
+    def ok(self):
+        self.result = [(self.rows[n]["old"], self.rows[n]["new"])
+                       for n in sorted(self.checked) if self.rows[n]["new"]]
+        self.destroy()
+
+
 class App(ttk.Frame):
     def __init__(self, master):
         super().__init__(master, padding=10)
@@ -368,6 +494,11 @@ class App(ttk.Frame):
         self.background = set()    # 其中在背景執行（claude --bg）的 id
         self.background_info = {}  # id -> launch.background_sessions() 的內容
         self.claude_version = ""   # 安裝的 Claude Code 版本
+        self.moved = {}            # 不在了的資料夾 -> 找到的新位置（清單）
+        self._moved_cache = None   # (不在了的資料夾集合, self.moved)
+        self._moved_busy = False
+        self._auto_tried = set()   # 自動搬家失敗過的 (舊, 新)，這次開著期間不再試
+        self._auto_note = None     # (自動搬家的結果, 時間)，狀態列顯示兩分鐘
         self.schema_ready = False
         self._filter_job = None
         self._grep_gen = 0
@@ -481,6 +612,8 @@ class App(ttk.Frame):
         m.add_separator()
         m.add_command(label=tr("背景對話改用新版 Claude"),
                       command=self.respawn_background)
+        m.add_command(label=tr("找回搬走的資料夾…"),
+                      command=self.find_moved_folders)
         m.add_separator()
         self.v_startup = tk.BooleanVar(value=startup.is_enabled())
         m.add_checkbutton(label=tr("開機時自動開啟"),
@@ -700,7 +833,8 @@ class App(ttk.Frame):
         if not dest:
             return
         dest = os.path.normpath(dest)
-        ok, err = sessions.move_session(sid, dest)
+        info = sessions.by_id(self.sessions).get(sid) or {}
+        ok, err = sessions.move_session(sid, dest, info.get("cwd") or None)
         if not ok:
             messagebox.showwarning(tr("移至其他資料夾"), err)
             return
@@ -713,6 +847,192 @@ class App(ttk.Frame):
             self._touch()
             self.save()
         self.status.configure(text=tr("已移至 %s") % dest)
+        self.rescan()
+
+    # ---------------- 資料夾搬家 ----------------
+    def _known_cwds(self):
+        return {c for c in [s.get("cwd") for s in self.sessions]
+                + [i.get("cwd") for i in self.items] if c}
+
+    def _find_moved_work(self, cwds, prev, force=False):
+        """背景執行：哪些資料夾不在了、各自搬到哪。集合沒變就沿用上次結果。"""
+        missing = frozenset(os.path.normpath(c) for c in cwds
+                            if not os.path.isdir(c))
+        if prev and prev[0] == missing and not force:
+            return prev
+        drives = {os.path.splitdrive(c)[0] for c in cwds}
+        found = sessions.find_moved(missing, drives)
+        return missing, {m: found.get(m, []) for m in missing}
+
+    def _check_moved(self, force=False, then=None):
+        if self._moved_busy:
+            return
+        self._moved_busy = True
+
+        def done(result, err):
+            self._moved_busy = False
+            if result:
+                changed = result[1] != self.moved
+                self._moved_cache = result
+                self.moved = result[1]
+                if changed:
+                    self.refresh_views()
+                self.update_status()
+                self._auto_relocate()
+            if then:
+                then()
+
+        self.run_bg(self._find_moved_work, done, self._known_cwds(),
+                    self._moved_cache, force)
+
+    def _auto_relocate(self):
+        """掃描後自動把有把握的搬家跟過去（唯一、同一顆磁碟、不像副本）。
+
+        開著的對話等關掉後的下一次掃描；搬失敗的這次開著期間不再重試。
+        有搬到東西回傳 True（relocate_folders 會再掃一次）。
+        """
+        pairs = []
+        for old, cands in sorted(self.moved.items()):
+            if not sessions.likely(old, cands) or \
+                    (old, cands[0]) in self._auto_tried:
+                continue
+            idle = [s for s in self.sessions
+                    if s.get("cwd") and sessions.same_dir(s["cwd"], old)
+                    and s["id"].lower() not in self.running]
+            items = [i for i in self.items if sessions.same_dir(i["cwd"], old)]
+            if idle or items:
+                pairs.append((old, cands[0]))
+        if not pairs:
+            return False
+        return self.relocate_folders(pairs, report=False, auto=True)
+
+    def _moved_note(self, cwd):
+        """資料夾清單的標頭補註：不在了、搬到哪。"""
+        if not cwd:
+            return ""
+        cands = self.moved.get(os.path.normpath(cwd))
+        if cands is None:
+            return ""
+        if cands:
+            return tr("　⚠ 已搬到 %s") % cands[0]
+        return tr("　⚠ 資料夾不在了")
+
+    def _moved_rows(self):
+        rows = []
+        for old in sorted(self.moved):
+            cands = self.moved[old]
+            n = len([s for s in self.sessions
+                     if s.get("cwd") and sessions.same_dir(s["cwd"], old)])
+            n_items = len([i for i in self.items
+                           if sessions.same_dir(i["cwd"], old)])
+            if not n and not n_items:
+                continue
+            rows.append({"old": old, "cands": list(cands),
+                         "new": cands[0] if cands else "", "count": n})
+        return rows
+
+    def find_moved_folders(self):
+        self.status.configure(text=tr("尋找搬走的資料夾…"))
+        self._check_moved(force=True, then=self._show_moved_dialog)
+
+    def _show_moved_dialog(self):
+        rows = self._moved_rows()
+        self.update_status()
+        if not rows:
+            messagebox.showinfo(tr("找回搬走的資料夾"),
+                                tr("所有對話的資料夾都還在原位。"))
+            return
+        dlg = MovedFoldersDialog(self, rows)
+        self.wait_window(dlg)
+        if dlg.result:
+            self.relocate_folders(dlg.result)
+
+    def _offer_relocate(self, cwd):
+        """開啟時資料夾不在了：找得到新位置就問要不要跟過去。回傳新位置。"""
+        key = os.path.normpath(cwd)
+        if key not in self.moved:
+            try:
+                drives = {os.path.splitdrive(c)[0] for c in self._known_cwds()}
+                self.moved[key] = sessions.find_moved([key], drives).get(key, [])
+            except Exception:
+                self.moved[key] = []
+        cands = self.moved.get(key) or []
+        if not sessions.likely(key, cands):
+            messagebox.showwarning(
+                tr("Claude 工作台"),
+                tr("資料夾不存在\n\n%s") % cwd + "\n\n"
+                + tr("搬過家的話，可以在「工具 → 找回搬走的資料夾」指定新位置。"))
+            return None
+        if not messagebox.askyesno(
+                tr("Claude 工作台"),
+                tr("「%s」不在了，看起來搬到了：\n\n%s\n\n"
+                   "要把這個資料夾的對話都改到新位置再開啟嗎？")
+                % (cwd, cands[0])):
+            return None
+        self.relocate_folders([(key, cands[0])], report=False)
+        return cands[0] if os.path.isdir(cands[0]) else None
+
+    def relocate_folders(self, pairs, report=True, auto=False):
+        """把每組 (舊資料夾, 新資料夾) 的對話改到新位置，啟動清單一起改。
+
+        auto：掃描後自動做的。沒改到東西就不重掃（免得一直重來），
+        有搬失敗的那組記下來不再自動重試。回傳有沒有改到東西。
+        """
+        moved, failed, busy, memory = 0, [], [], 0
+        changed = False
+        for old, new in pairs:
+            before = len(failed)
+            if not os.path.isdir(new):
+                failed.append(tr("%s：目標資料夾不存在") % old)
+            else:
+                for s in list(self.sessions):
+                    if not s.get("cwd") or not sessions.same_dir(s["cwd"], old):
+                        continue
+                    if s["id"].lower() in self.running:
+                        busy.append(sessions.label(s)[:30])
+                        continue
+                    ok, err = sessions.move_session(s["id"], new, s["cwd"])
+                    if ok:
+                        moved += 1
+                        s["cwd"] = new
+                    else:
+                        failed.append("%s：%s" % (sessions.label(s)[:30], err))
+                if sessions.copy_memory(old, new):
+                    memory += 1
+                for it in self.items:
+                    if sessions.same_dir(it["cwd"], old):
+                        it["cwd"] = new
+                        changed = True
+                self.moved.pop(os.path.normpath(old), None)
+            if auto and len(failed) > before:
+                self._auto_tried.add((old, new))
+        if changed:
+            self._touch()
+            self.save()
+        self._moved_cache = None
+        if auto:
+            if not moved and not changed:
+                self.update_status()
+                return False
+            names = tr("、").join("%s → %s" % (os.path.basename(o) or o, n)
+                                  for o, n in pairs)
+            self._auto_note = (tr("資料夾搬了家，已自動把 %d 條對話改到新位置（%s）")
+                               % (moved, names), time.time())
+            self.refresh_views()
+            self.rescan()
+            return True
+        self.status.configure(text=tr("已把 %d 條對話改到新位置") % moved)
+        if report and (failed or busy or memory or moved):
+            lines = [tr("已把 %d 條對話改到新位置。") % moved]
+            if memory:
+                lines.append(tr("專案記憶也複製了 %d 個資料夾的份。") % memory)
+            if busy:
+                lines.append(tr("開著的沒有搬（關掉後再做一次）：%s")
+                             % tr("、").join(busy))
+            if failed:
+                lines.append(tr("沒搬成：\n%s") % "\n".join(failed))
+            messagebox.showinfo(tr("找回搬走的資料夾"), "\n\n".join(lines))
+        self.refresh_views()
         self.rescan()
 
     def copy_resume(self):
@@ -1084,6 +1404,7 @@ class App(ttk.Frame):
             self.apply_columns()
             self.refresh_views()
             self.update_status()
+            self._check_moved()
 
         self.run_bg(sessions.scan, done)
 
@@ -1124,6 +1445,13 @@ class App(ttk.Frame):
         if old:
             bits.append(tr("%d 條背景對話仍是舊版（工具 → 背景對話改用新版）")
                         % len(old))
+        unsure = len([1 for o, c in self.moved.items()
+                      if c and not sessions.likely(o, c)])
+        if unsure:
+            bits.append(tr("%d 個資料夾搬了家、要確認新位置（工具 → 找回搬走的資料夾）")
+                        % unsure)
+        if self._auto_note and time.time() - self._auto_note[1] < 120:
+            bits.insert(0, self._auto_note[0])
         self.status.configure(text=tr("　·　").join(bits))
         text = tr("累計 %s（API 牌價估算）") % sessions.money(total)
         unknown = sorted({m for s in self.sessions
@@ -1277,7 +1605,8 @@ class App(ttk.Frame):
         for cwd in order:
             rows = sorted(groups[cwd], key=lambda x: x[0][key], reverse=desc)
             subtotal = sum(x[0]["cost"] for x in rows)
-            self.tree.insert("", "end", iid="F:" + cwd, text=cwd, open=True,
+            self.tree.insert("", "end", iid="F:" + cwd,
+                             text=cwd + self._moved_note(cwd), open=True,
                              values=(sessions.money(subtotal), "", ""),
                              tags=("folder",))
             for s, text in rows:
@@ -1427,11 +1756,12 @@ class App(ttk.Frame):
         quiet = len(targets) > 1
         todo, skipped, focus_q = [], [], []
         for t in targets:
+            if not os.path.isdir(t["cwd"]) and not quiet:
+                new = self._offer_relocate(t["cwd"])
+                if new:
+                    t = dict(t, cwd=new)
             if not os.path.isdir(t["cwd"]):
                 skipped.append(tr("%s　資料夾不存在") % t["name"])
-                if not quiet:
-                    messagebox.showwarning(tr("Claude 工作台"),
-                                           tr("資料夾不存在\n\n%s") % t["cwd"])
             elif not sessions.find_file(t["session"]):
                 skipped.append(tr("%s　找不到對話紀錄") % t["name"])
                 if not quiet:

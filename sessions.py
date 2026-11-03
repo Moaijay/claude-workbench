@@ -4,6 +4,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import time
 
 import appdata
@@ -11,7 +12,7 @@ from i18n import tr
 
 PROJECTS = os.path.join(os.path.expanduser("~"), ".claude", "projects")
 CACHE = appdata.cache_path("scan-cache.json")
-CACHE_VERSION = 9           # 格式改了就把舊快取作廢
+CACHE_VERSION = 10          # 格式改了就把舊快取作廢
 
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
                      r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -297,6 +298,7 @@ def read_one(path):
     where_by_id = {}            # message id → (行號, 時間毫秒)
     order = []
     cost_state = None           # (行號, 紀錄)
+    relocated = ""
 
     with open(path, encoding="utf-8", errors="replace") as fh:
         for i, line in enumerate(fh):
@@ -323,6 +325,19 @@ def read_one(path):
                     o = None
                 if o and o.get("type") == "cost-state"                         and isinstance(o.get("totalCostUSD"), (int, float))                         and isinstance(o.get("startTime"), (int, float)):
                     cost_state = (i, o)
+
+            # 對話換了資料夾（Claude Code 在對話中 cd、或本工具「移至其他
+            # 資料夾」）時往檔尾追加 relocated，之後以它為準、最後一筆為準。
+            # 檔頭的 cwd 仍是原本的位置。
+            if '"relocatedCwd"' in line:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    o = None
+                if o and o.get("type") == "relocated" and \
+                        isinstance(o.get("relocatedCwd"), str) and \
+                        o["relocatedCwd"]:
+                    relocated = o["relocatedCwd"]
 
             # 標題不受檔頭窗口限制：改名記錄往檔尾追加，長對話的改名
             # 全落在窗口外。整檔都看、最後一筆為準（反正整檔本來就要讀）。
@@ -364,6 +379,8 @@ def read_one(path):
             if info["cwd"] and info["first"]:
                 meta_done = True
 
+    if relocated:
+        info["cwd"] = relocated
     info["cost"] = sum(_usage_cost(*usage_by_id[k]) for k in order)
     info["turns"] = len(order)
     stamps = [ms for _, ms in where_by_id.values() if ms is not None]
@@ -484,6 +501,14 @@ def scan(use_cache=True, progress=None):
     except OSError:
         pass
 
+    # 同一條對話可能同時在兩個專案目錄（例如手動複製到新位置、舊的還留著）：
+    # 只列最近寫入的那份，與 find_file 取的是同一份
+    newest = {}
+    for info in out:
+        k = info["id"].lower()
+        if k not in newest or (info["mtime"], info["size"]) >                 (newest[k]["mtime"], newest[k]["size"]):
+            newest[k] = info
+    out = list(newest.values())
     out.sort(key=lambda d: d["mtime"], reverse=True)
     return out
 
@@ -547,24 +572,70 @@ def handoff_map(sessions):
 def find_file(session_id):
     """在所有專案目錄裡找這條對話的紀錄檔。"""
     hits = glob.glob(os.path.join(PROJECTS, "*", session_id + ".jsonl"))
+    if len(hits) > 1:
+        # 有好幾份時取最近寫入的（續接時 Claude Code 寫的是那份）
+        def key(h):
+            try:
+                st = os.stat(h)
+                return (st.st_mtime, st.st_size)
+            except OSError:
+                return (0, 0)
+        hits.sort(key=key, reverse=True)
     return hits[0] if hits else None
 
 
-def move_session(session_id, new_cwd):
-    """把對話的紀錄檔搬到另一個專案資料夾。回傳 (成功, 錯誤訊息)。
+def _stamp_relocated(path, session_id, new_cwd):
+    """在紀錄檔尾追加 relocated 記錄（與 Claude Code 自己搬移時寫的同格式）。
 
-    搬移後該對話會出現在目標資料夾的 claude -r 選單，於該處續接。
-    同一磁碟內的更名為原子操作，內容不變。
+    沒有它，紀錄檔頭的 cwd 仍是舊位置：本工具會把對話列在舊資料夾，
+    Claude Code 的 /resume 選單也會因「記錄的資料夾不同」把它濾掉
+    （中文資料夾名換成專案目錄名時常撞名）。
+    """
+    rec = json.dumps({"type": "relocated", "sessionId": session_id,
+                      "relocatedCwd": new_cwd},
+                     ensure_ascii=False, separators=(",", ":"))
+    with open(path, "rb+") as fh:
+        fh.seek(0, os.SEEK_END)
+        lead = b""
+        if fh.tell():
+            fh.seek(-1, os.SEEK_END)
+            if fh.read(1) != b"\n":
+                lead = b"\n"
+            fh.seek(0, os.SEEK_END)
+        fh.write(lead + rec.encode("utf-8") + b"\n")
+
+
+def same_dir(a, b):
+    return os.path.normcase(os.path.normpath(a)) == \
+        os.path.normcase(os.path.normpath(b))
+
+
+def move_session(session_id, new_cwd, old_cwd=None):
+    """把對話改到另一個資料夾續接。回傳 (成功, 錯誤訊息)。
+
+    紀錄檔（與子代理目錄）搬到目標資料夾對應的專案目錄，並記下新位置，
+    之後該對話會出現在目標資料夾的 claude -r 選單，於該處續接。
+    同一磁碟內的更名為原子操作，原有內容不變。不同資料夾可能對應同一個
+    專案目錄（非英數字一律變成連字號），這時只記下新位置、不必搬檔。
+    old_cwd 是對話目前記錄的資料夾，與目標相同時回報「已在該資料夾」。
     """
     src = find_file(session_id)
     if not src:
         return False, tr("找不到對話紀錄")
     if not os.path.isdir(new_cwd):
         return False, tr("目標資料夾不存在：%s") % new_cwd
+    if old_cwd is not None and same_dir(old_cwd, new_cwd):
+        return False, tr("已在該資料夾")
     dest_dir = os.path.join(PROJECTS, project_dir_name(new_cwd))
     dest = os.path.join(dest_dir, session_id + ".jsonl")
     if os.path.normcase(dest) == os.path.normcase(src):
-        return False, tr("已在該資料夾")
+        if old_cwd is None:
+            return False, tr("已在該資料夾")
+        try:
+            _stamp_relocated(src, session_id, new_cwd)
+        except OSError as e:
+            return False, str(e)
+        return True, None
     if os.path.exists(dest):
         return False, tr("目標已存在同名紀錄")
     # 該對話的子代理紀錄在同層的 <id>/ 目錄，要跟著搬，否則會變成孤兒
@@ -583,7 +654,187 @@ def move_session(session_id, new_cwd):
                 return False, str(e)
     except OSError as e:
         return False, str(e)
+    try:
+        _stamp_relocated(dest, session_id, new_cwd)
+    except OSError:
+        pass                # 已搬過去，只差顯示位置
     return True, None
+
+
+def copy_memory(old_cwd, new_cwd):
+    """把舊資料夾的專案記憶複製到新資料夾。回傳是否有複製。
+
+    Claude Code 的專案記憶放在 ~/.claude/projects/<專案目錄>/memory，
+    資料夾搬走後新位置對應另一個專案目錄，記憶就讀不到了。只在新位置
+    還沒有任何記憶時複製（不覆蓋）；舊的留著，因為撞名時可能是別的
+    資料夾在用。
+    """
+    src = os.path.join(PROJECTS, project_dir_name(old_cwd), "memory")
+    dst = os.path.join(PROJECTS, project_dir_name(new_cwd), "memory")
+    if os.path.normcase(src) == os.path.normcase(dst):
+        return False
+    try:
+        if not os.path.isdir(src) or not os.listdir(src):
+            return False
+        if os.path.isdir(dst) and os.listdir(dst):
+            return False
+        shutil.copytree(src, dst, dirs_exist_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+# 找搬走的資料夾時不往裡面找的目錄
+_SKIP_DIRS = {"windows", "program files", "program files (x86)", "programdata",
+              "appdata", "recovery", "system volume information",
+              "node_modules", "__pycache__", "site-packages", "venv"}
+FIND_DEPTH = 5              # 從磁碟根目錄往下找幾層
+
+
+def _name_fits(name, want):
+    """資料夾名是否就是 want，或 want 後面接 -、_、空白、( 的改名（日記 → 日記-diary）。"""
+    n, w = name.lower(), want.lower()
+    return n == w or (len(n) > len(w) and n.startswith(w)
+                      and n[len(w)] in "-_ (（")
+
+
+def _walk_dirs(root, wanted, depth, out):
+    """在 root 底下 depth 層內找名字符合 wanted（小寫）任一者的資料夾。"""
+    try:
+        entries = list(os.scandir(root))
+    except OSError:
+        return
+    for e in entries:
+        try:
+            if not e.is_dir(follow_symlinks=False):
+                continue
+        except OSError:
+            continue
+        low = e.name.lower()
+        for w in wanted:
+            if _name_fits(low, w):
+                out.setdefault(w, []).append(e.path)
+        if depth > 1 and low not in _SKIP_DIRS and \
+                not low.startswith((".", "$")):
+            _walk_dirs(e.path, wanted, depth - 1, out)
+
+
+def _descend(base, parts):
+    """從 base 依序往下走 parts；某段不在時，接受唯一一個改名過的同名資料夾。"""
+    cur = base
+    for part in parts:
+        nxt = os.path.join(cur, part)
+        if os.path.isdir(nxt):
+            cur = nxt
+            continue
+        try:
+            kids = [e.path for e in os.scandir(cur)
+                    if e.is_dir(follow_symlinks=False)
+                    and _name_fits(e.name, part)]
+        except OSError:
+            return None
+        if len(kids) != 1:
+            return None
+        cur = kids[0]
+    return os.path.normpath(cur)
+
+
+def missing_tail(path):
+    """不存在的資料夾 → (磁碟, 從第一個不存在的那一段起的各段)；存在則 None。"""
+    path = os.path.normpath(path)
+    drive, rest = os.path.splitdrive(path)
+    parts = [x for x in rest.split(os.sep) if x]
+    if not drive or not parts:
+        return None
+    k = 0
+    while k < len(parts) and \
+            os.path.isdir(os.path.join(drive + os.sep, *parts[:k + 1])):
+        k += 1
+    if k == len(parts):
+        return None
+    return drive.upper(), parts[k:]
+
+
+# 路徑裡有這些名字的位置多半是備份或待刪的副本，排在後面、不預設勾選
+_DOUBTFUL = ("node_modules", "待刪", "回收", "trash", "backup", "備份", "副本")
+
+
+def doubtful(path):
+    return any(w in part.lower() for part in path.split(os.sep)
+               for w in _DOUBTFUL)
+
+
+def likely(old, cands):
+    """找到的新位置是否有把握到可以預設勾選：唯一一個、同一顆磁碟、不像副本。"""
+    return len(cands) == 1 and not doubtful(cands[0]) and \
+        os.path.splitdrive(cands[0])[0].upper() == \
+        os.path.splitdrive(old)[0].upper()
+
+
+def find_moved(paths, drives=(), roots=None):
+    """不存在的資料夾 → 現在可能的位置（清單，可能為空，較可能的在前）。
+
+    從第一個不存在的那一段起比對（例如 D:\\日記\\Entries 找「日記\\Entries」），
+    在同一顆磁碟找同名資料夾（也接受「日記-diary」這種加了字尾的改名）、
+    底下也有同樣子路徑者；同一顆找不到再找 drives 裡的其他磁碟。
+    roots 可指定某顆磁碟從哪裡找起（{"C:": 資料夾}，測試用），預設從根目錄。
+    """
+    roots = roots or {}
+    tails = {}
+    for p in paths:
+        t = missing_tail(p)
+        if t:
+            tails[os.path.normpath(p)] = t
+    if not tails:
+        return {}
+    walked = {}                 # 磁碟 → {小寫名稱: [路徑]}
+    names = {t[1][0].lower() for t in tails.values()}
+
+    def lookup(drive, name):
+        if drive not in walked:
+            hits = {}
+            root = roots.get(drive, drive + os.sep)
+            if os.path.isdir(root):
+                _walk_dirs(root, names, FIND_DEPTH, hits)
+            walked[drive] = hits
+        return walked[drive].get(name.lower(), [])
+
+    found = {}
+    others = sorted({d.upper().rstrip(":\\/") + ":" for d in drives if d})
+    for p, (drive, tail) in tails.items():
+        cands = []
+        order = [drive] + [x for x in others if x != drive]
+        for d in order:
+            for base in lookup(d, tail[0]):
+                cand = _descend(base, tail[1:])
+                if cand and not same_dir(cand, p):
+                    cands.append(cand)
+            if cands:
+                break
+        if not cands and len(tail) > 1:
+            cands = _find_inside(p, tail, lookup, order)
+        found[p] = sorted(set(cands), key=lambda c: (
+            doubtful(c), not os.path.basename(c).lower()
+            == tail[-1].lower(), c.count(os.sep), c))
+    return found
+
+
+def _find_inside(p, tail, lookup, drives):
+    """中間某層也改了名（例如 教授論文 → 論文\\東大教授論文）時的退路。
+
+    最上面那段找得到（整個資料夾搬走了），就在它的新位置裡找最後一段的
+    同名資料夾；只有唯一一個才算，避免 src、test 這種常見名字配錯。
+    """
+    for d in drives:
+        tops = [b for b in lookup(d, tail[0]) if os.path.isdir(b)]
+        if len(tops) != 1:
+            continue
+        hits = {}
+        _walk_dirs(tops[0], {tail[-1].lower()}, FIND_DEPTH + 1, hits)
+        got = [os.path.normpath(h) for h in hits.get(tail[-1].lower(), [])
+               if not same_dir(h, p)]
+        return got if len(got) == 1 else []
+    return []
 
 
 # 新版 Claude Code 在紀錄檔裡另存送給模型的內容：每次請求的副本
