@@ -864,6 +864,43 @@ def main():
               sessions.CACHE.startswith(appdata.data_dir()))
         check("安裝目錄沒有快取檔",
               not os.path.exists(os.path.join(HERE, "scan-cache.json")))
+        check("掃描快取檔名帶格式版本（舊版還開著也不會互蓋）",
+              os.path.basename(sessions.CACHE)
+              == "scan-cache-v%d.json" % sessions.CACHE_VERSION)
+        # 新檔名還沒有時，接著用舊檔名裡同版本的快取，不必整份重讀
+        old_c, old_ap = sessions.CACHE, sessions.appdata.cache_path
+        old_p, old_g = sessions.PROJECTS, sessions.SUB_GLOB
+        cdir = tempfile.mkdtemp(prefix="wbcache")
+        try:
+            sessions.appdata.cache_path = lambda n: os.path.join(cdir, n)
+            sessions.CACHE = os.path.join(cdir, "scan-cache-v%d.json"
+                                          % sessions.CACHE_VERSION)
+            sessions.PROJECTS = os.path.join(cdir, "projects")
+            sessions.SUB_GLOB = os.path.join(sessions.PROJECTS, "*", "*",
+                                             "subagents", "**", "*.jsonl")
+            os.makedirs(os.path.join(sessions.PROJECTS, "zz"))
+            probe = os.path.join(sessions.PROJECTS, "zz",
+                                 "00000000-0000-0000-0000-0000000000c1.jsonl")
+            with open(probe, "w", encoding="utf-8") as fh:
+                for k in range(40):
+                    fh.write(json.dumps({"type": "user", "cwd": cdir,
+                                         "message": {"content": "原文 %d " % k
+                                                     + "x" * 800}},
+                                        ensure_ascii=False) + "\n")
+            pst = os.stat(probe)
+            fake = dict(sessions.read_one(probe), first="zz 舊檔名快取",
+                        size=pst.st_size, mtime=pst.st_mtime)
+            with open(os.path.join(cdir, "scan-cache.json"), "w",
+                      encoding="utf-8") as fh:
+                json.dump({"version": sessions.CACHE_VERSION,
+                           "items": {probe: fake}}, fh, ensure_ascii=False)
+            got = [x for x in sessions.scan() if x.get("first") == "zz 舊檔名快取"]
+            check("舊檔名的同版快取會接著用", len(got) == 1, len(got))
+            check("之後寫到新檔名", os.path.exists(sessions.CACHE))
+        finally:
+            sessions.CACHE, sessions.appdata.cache_path = old_c, old_ap
+            sessions.PROJECTS, sessions.SUB_GLOB = old_p, old_g
+            shutil.rmtree(cdir, ignore_errors=True)
 
         # ---------- schema 抽取 ----------
         import claudeschema
@@ -1157,6 +1194,26 @@ def main():
               app.picked_menu.entrycget(app._pm_idx["background"], "label")
               == i18n.tr("啟動時在背景開（不開視窗）"))
 
+        # 清單還空著時顯示讀取進度
+        real_sessions_l = app.sessions
+        try:
+            app.sessions = []
+            app._show_loading(i18n.tr("讀取對話紀錄中…"))
+            busy_l = app._scan_busy
+            app._scan_busy = True
+            app._scan_progress(5, 40, True)
+            app._scan_busy = busy_l
+            rows_l = app.tree.get_children()
+            check("清單空著時顯示讀取進度",
+                  rows_l == ("__loading__",) and
+                  (i18n.tr("讀取對話紀錄中… %d / %d") % (5, 40))
+                  in app.tree.item("__loading__", "text") and
+                  app.selected_sessions() == [],
+                  [app.tree.item(r, "text") for r in rows_l])
+        finally:
+            app.sessions = real_sessions_l
+            app.fill_tree()
+
         # 資料夾搬家：清單標出、一鍵改到新位置、啟動清單跟著改
         ui_base = tempfile.mkdtemp(prefix="wbui")
         ui_proj = os.path.join(sessions.PROJECTS, "zz-test-uireloc")
@@ -1209,6 +1266,26 @@ def main():
             app.sessions, app.items = [u2], []
             key2 = os.path.normpath(gone2)
             real_running = app.running
+            app._running_known = True
+            app.moved = {key2: [now2]}
+            app._missing_since = {key2: time.time()}
+            fresh = app._auto_relocate()
+            check("剛不見的資料夾先不自動搬（等下一次檢查還不見）",
+                  not fresh and sessions.read_one(uf2)["cwd"] == gone2, fresh)
+            app._missing_since = {key2: time.time() - 60}
+            app._running_known = False
+            unknown = app._auto_relocate()
+            check("還不知道哪些對話開著時不自動搬",
+                  not unknown and sessions.read_one(uf2)["cwd"] == gone2,
+                  unknown)
+            app._running_known = True
+            other = dict(u2, id="00000000-0000-0000-0000-0000000000u9",
+                         cwd=now2)
+            app.sessions = [u2, other]
+            taken = app._auto_relocate()
+            check("新位置已有別的對話在用時不自動搬（可能是另一個同名專案）",
+                  not taken and sessions.read_one(uf2)["cwd"] == gone2, taken)
+            app.sessions = [u2]
             app.running = set(real_running) | {uid2}
             app.moved = {key2: [now2]}
             waited = app._auto_relocate()
@@ -1223,10 +1300,12 @@ def main():
                   did and f2 and sessions.read_one(f2)["cwd"] == now2 and
                   app._auto_note and "1" in app._auto_note[0],
                   (did, f2, app._auto_note))
-            wait_until(lambda: not app._scan_busy, timeout=120, root=root)
+            wait_until(lambda: not app._scan_busy and not app._moved_busy,
+                       timeout=120, root=root)
             app.sessions, app.items = [dict(u2, cwd=gone2)], []
             bad = os.path.join(ui_base, "沒有這個")
             app.moved = {key2: [bad]}
+            app._missing_since = {key2: time.time() - 60}
             first = app._auto_relocate()
             app.moved = {key2: [bad]}
             again = app._auto_relocate()
@@ -1235,11 +1314,64 @@ def main():
                   (first, again))
             app._auto_tried.discard((key2, bad))
             app._auto_note = None
+
+            # 沒有任何紀錄檔變動、只在檔案總管搬了資料夾：每 30 秒的檢查會跟上
+            wait_until(lambda: not app._scan_busy and not app._moved_busy,
+                       timeout=120, root=root)
+            here3 = os.path.join(ui_base, "原處", "zz搬家偵測")
+            there3 = os.path.join(ui_base, "整理後", "zz搬家偵測")
+            os.makedirs(here3)
+            uid3 = "00000000-0000-0000-0000-0000000000u3"
+            uf3 = os.path.join(ui_proj, uid3 + ".jsonl")
+            with open(uf3, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps({"type": "user", "cwd": here3, "message":
+                                     {"content": "zz 輪詢搬家測試"}},
+                                    ensure_ascii=False) + "\n")
+            real_find = sessions.find_moved
+            sessions.find_moved = lambda paths, drives=(), roots=None: \
+                real_find(paths, drives, roots={"C:": ui_base,
+                                                os.path.splitdrive(ui_base)[0]
+                                                .upper(): ui_base})
+            try:
+                app.sessions = [dict(sessions.read_one(uf3), cost=0.0)]
+                app.items, app.moved, app._moved_cache = [], {}, None
+                app._poll_folders()
+                wait_until(lambda: not app._moved_busy, timeout=30, root=root)
+                check("資料夾都在時輪詢不動任何東西",
+                      app.moved == {} and
+                      sessions.read_one(uf3)["cwd"] == here3, app.moved)
+                os.makedirs(os.path.dirname(there3))
+                os.rename(here3, there3)
+                app._poll_folders()
+                wait_until(lambda: not app._moved_busy, timeout=60, root=root)
+                key3 = os.path.normpath(here3)
+                check("剛發現不見時先標出新位置、還不搬",
+                      app.moved.get(key3) == [there3] and
+                      sessions.read_one(uf3)["cwd"] == here3, app.moved)
+                app._missing_since[key3] = time.time() - 60
+                app._poll_folders()
+                wait_until(lambda: not app._moved_busy, timeout=60, root=root)
+                f3 = sessions.find_file(uid3)
+                check("只搬資料夾、沒按重新整理，下一次輪詢就自動跟上",
+                      f3 and sessions.read_one(f3)["cwd"] == there3,
+                      (f3, app.moved))
+                # 沒找到的不會永遠沿用「沒找到」：隔一陣子重找
+                lost = os.path.normpath(os.path.join(ui_base, "zz找不到"))
+                recent = (frozenset([lost]), {lost: []}, time.time())
+                stale = (frozenset([lost]), {lost: []}, time.time() - 3600)
+                check("沒找到的過一陣子會重找、剛找過的沿用",
+                      app._find_moved_work([lost], recent) is recent and
+                      app._find_moved_work([lost], stale) is not stale)
+                wait_until(lambda: not app._scan_busy, timeout=120, root=root)
+            finally:
+                sessions.find_moved = real_find
+            app._auto_note = None
         finally:
             app.sessions, app.items = real_sessions_r, real_items_r
             app.moved = {}
             for gid in ("00000000-0000-0000-0000-0000000000u1",
-                        "00000000-0000-0000-0000-0000000000u2"):
+                        "00000000-0000-0000-0000-0000000000u2",
+                        "00000000-0000-0000-0000-0000000000u3"):
                 f = sessions.find_file(gid)
                 if f:
                     os.remove(f)

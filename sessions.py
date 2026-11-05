@@ -11,8 +11,10 @@ import appdata
 from i18n import tr
 
 PROJECTS = os.path.join(os.path.expanduser("~"), ".claude", "projects")
-CACHE = appdata.cache_path("scan-cache.json")
 CACHE_VERSION = 10          # 格式改了就把舊快取作廢
+# 檔名帶版本：舊版工作台還開著時會一直寫自己格式的快取，同一個檔名的話
+# 新版每次都得整份重讀
+CACHE = appdata.cache_path("scan-cache-v%d.json" % CACHE_VERSION)
 
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
                      r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -437,9 +439,12 @@ def scan(use_cache=True, progress=None):
     多半是沒有實際內容的空對話，但只要有計費回覆仍會列出。
     """
     cache = {}
-    if use_cache and os.path.exists(CACHE):
+    # 舊檔名 scan-cache.json 若剛好是同一版格式（1.9.1 寫的）也接著用
+    for path in (CACHE, appdata.cache_path("scan-cache.json")):
+        if cache or not use_cache or not os.path.exists(path):
+            continue
         try:
-            with open(CACHE, encoding="utf-8") as fh:
+            with open(path, encoding="utf-8") as fh:
                 blob = json.load(fh)
             if blob.get("version") == CACHE_VERSION:
                 cache = blob.get("items", {})

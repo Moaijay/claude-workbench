@@ -243,17 +243,29 @@ suffix, such as `日記` → `日記-diary`) with the same subfolders below it. 
 whole folder was moved and a folder inside it was renamed, it looks for the
 last folder by name inside the new location.
 
-- **Confident matches are followed automatically** on every scan (startup,
-  Refresh / F5, and when session files change): a single match on the same
+- **Confident matches are followed automatically**, on startup, Refresh / F5,
+  and every 30 seconds while the workbench is open (moving a folder in Explorer
+  does not touch any session log, so the folders are checked on their own; it
+  only tests whether each path exists, and searches only when one goes
+  missing). Confident means a single match on the same
   drive that does not look like a backup or a to-delete copy. The folder's
   sessions are moved there (the same operation as "Move to another folder"),
   launch list items follow, and the folder's project memory
   (`~\.claude\projects\<folder>\memory`) is copied to the new location if the
   new one has none. The status bar says what was moved for two minutes.
-- Sessions that are open are left until they are closed; the next scan
+- Sessions that are open are left until they are closed; the next check
   after that moves them. A move that fails is not retried until the
-  workbench is reopened.
-- Other cases (several matches, another drive, a backup-looking location)
+  workbench is reopened. Each automatic move is written to the error log
+  (Tools → Error log) with the old and new folder.
+- Safeguards: a folder must still be missing at the next check (so a folder
+  that is gone only for a moment, mid-move or on a drive still connecting,
+  is not followed); nothing moves until the workbench knows which sessions
+  are open; and a location that other sessions already use is not followed
+  automatically, since it is more likely a different project with the same
+  name. Missing folders with no confident match are searched again every
+  10 minutes, in case the folder was moved twice.
+- Other cases (several matches, another drive, a backup-looking location,
+  a location already in use)
   are not moved by themselves. The folder rows show **⚠ moved to …** or
   **⚠ folder no longer exists**, and the status bar says how many need
   checking. **Tools → Find moved folders…** lists them with the location found
@@ -513,8 +525,17 @@ the default size is used.
   `settings.json` is handled the same way.
 - **Cache location**: the scan cache and schema cache live in the user data
   directory, so the install folder can be read-only.
+- **Startup time**: the scan cache keeps what was read from each session log
+  and rereads only logs that changed, so opening takes seconds. The first
+  launch, and the first after an update that changes the cache format, reads
+  every log; with several GB of logs this takes about a minute. The list
+  shows "Reading session logs… n / total" meanwhile. The cache file name
+  carries the format version (`scan-cache-v10.json`), so an older workbench
+  left open does not keep overwriting it. When Claude Code itself has been
+  updated, the settings schema is re-read from `claude.exe` after the list
+  has loaded, not alongside it.
 - **Regression tests**: `python tests/regression.py` runs against a sandbox
-  copy of the config file and does not disturb a workbench in use. 191 checks,
+  copy of the config file and does not disturb a workbench in use. 202 checks,
   including the invariant that no session log is ever deleted or truncated.
   They also run on GitHub Actions (Windows, Python 3.9 and 3.13) on every
   push; checks that need an installed `claude` binary are skipped there and

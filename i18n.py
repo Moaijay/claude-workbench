@@ -401,6 +401,12 @@ EN = {
         "%d moved folders need their new location checked (Tools → Find moved folders)",
     "資料夾搬了家，已自動把 %d 條對話改到新位置（%s）":
         "Folders moved; %d sessions were updated to the new location (%s)",
+    "讀取對話紀錄中…": "Reading session logs…",
+    "讀取對話紀錄中… %d / %d": "Reading session logs… %d / %d",
+    "　（第一次開啟、或工作台更新後要整份重讀，之後幾秒內就好）":
+        "  (the first launch, or the first after an update, reads every log; later launches take seconds)",
+    "掃描失敗，詳見錯誤記錄檔（工具 → 錯誤記錄檔）":
+        "Scan failed; see the error log (Tools → Error log)",
     "　⚠ 已搬到 %s": "  ⚠ moved to %s",
     "　⚠ 資料夾不在了": "  ⚠ folder no longer exists",
     "尋找搬走的資料夾…": "Looking for moved folders…",
@@ -419,8 +425,8 @@ EN = {
     "開著的沒有搬（關掉後再做一次）：%s":
         "Open sessions were not moved (close them and run this again): %s",
     "沒搬成：\n%s": "Not moved:\n%s",
-    "資料夾搬過家的話：開工作台 → 工具 → 找回搬走的資料夾。":
-        "If folders were moved: open the Workbench → Tools → Find moved folders.",
+    "資料夾搬過家的話：打開工作台，找得到新位置的會自動改過去；找不到的到「工具 → 找回搬走的資料夾」指定。":
+        "If folders were moved: open the Workbench. Sessions whose new location is found are updated automatically; set the others in Tools → Find moved folders.",
     "目標已存在同名紀錄": "A log with the same id already exists at the target",
     "設定檔損壞（%s）\n已保留於 %s\n目前載入預設值":
         "Config file corrupt (%s)\nPreserved at %s\nDefaults loaded",

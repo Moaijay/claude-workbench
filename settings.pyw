@@ -475,6 +475,9 @@ class MovedFoldersDialog(tk.Toplevel):
 
 
 class App(ttk.Frame):
+    AUTO_AFTER_S = 20       # 資料夾不見至少這麼久（前一次檢查就不見）才自動跟過去
+    RESEARCH_S = 600        # 不見又還沒找到把握位置的，每隔這麼久重找一次
+
     def __init__(self, master):
         super().__init__(master, padding=10)
         self.grid(row=0, column=0, sticky="nsew")
@@ -499,6 +502,8 @@ class App(ttk.Frame):
         self._moved_busy = False
         self._auto_tried = set()   # 自動搬家失敗過的 (舊, 新)，這次開著期間不再試
         self._auto_note = None     # (自動搬家的結果, 時間)，狀態列顯示兩分鐘
+        self._missing_since = {}   # 不見的資料夾 → 第一次發現的時間
+        self._running_known = False  # 第一次執行中偵測完成前不自動搬
         self.schema_ready = False
         self._filter_job = None
         self._grep_gen = 0
@@ -524,7 +529,9 @@ class App(ttk.Frame):
         self.after(60, self.rescan)
         self.after(800, self._poll_running)
         self.after(POLL_CHANGES_MS, self._poll_changes)
-        self._preload_schema()
+        # 設定選項表等第一次掃描完再讀：Claude Code 更新後要翻整個執行檔，
+        # 和掃描搶 CPU 會讓清單更晚出來
+        self._schema_started = False
 
     # ---------------- 背景執行 ----------------
     def run_bg(self, fn, done, *args):
@@ -855,14 +862,20 @@ class App(ttk.Frame):
                 + [i.get("cwd") for i in self.items] if c}
 
     def _find_moved_work(self, cwds, prev, force=False):
-        """背景執行：哪些資料夾不在了、各自搬到哪。集合沒變就沿用上次結果。"""
+        """背景執行：哪些資料夾不在了、各自搬到哪。
+
+        不見的集合沒變就沿用上次結果；但有還沒找到把握位置的，每隔
+        RESEARCH_S 秒重找一次（可能分兩次搬，第一次搬到找不到的地方）。
+        """
         missing = frozenset(os.path.normpath(c) for c in cwds
                             if not os.path.isdir(c))
         if prev and prev[0] == missing and not force:
-            return prev
+            settled = all(sessions.likely(m, c) for m, c in prev[1].items())
+            if settled or time.time() - prev[2] < self.RESEARCH_S:
+                return prev
         drives = {os.path.splitdrive(c)[0] for c in cwds}
         found = sessions.find_moved(missing, drives)
-        return missing, {m: found.get(m, []) for m in missing}
+        return missing, {m: found.get(m, []) for m in missing}, time.time()
 
     def _check_moved(self, force=False, then=None):
         if self._moved_busy:
@@ -875,9 +888,13 @@ class App(ttk.Frame):
                 changed = result[1] != self.moved
                 self._moved_cache = result
                 self.moved = result[1]
+                now = time.time()
+                self._missing_since = {m: self._missing_since.get(m, now)
+                                       for m in self.moved}
                 if changed:
+                    # 每 30 秒都會跑，沒變就不動狀態列，免得蓋掉別的訊息
                     self.refresh_views()
-                self.update_status()
+                    self.update_status()
                 self._auto_relocate()
             if then:
                 then()
@@ -892,9 +909,19 @@ class App(ttk.Frame):
         有搬到東西回傳 True（relocate_folders 會再掃一次）。
         """
         pairs = []
+        if not self._running_known:
+            return False            # 還不知道哪些開著，先不動
+        now = time.time()
         for old, cands in sorted(self.moved.items()):
             if not sessions.likely(old, cands) or \
                     (old, cands[0]) in self._auto_tried:
+                continue
+            # 至少在前一次檢查就不見了：搬到一半、磁碟剛接上這種一下子
+            # 不見的不算
+            if now - self._missing_since.get(old, now) < self.AUTO_AFTER_S:
+                continue
+            # 新位置已經有別的對話在用：多半是另一個同名的專案，留給人確認
+            if self._used_elsewhere(cands[0], old):
                 continue
             idle = [s for s in self.sessions
                     if s.get("cwd") and sessions.same_dir(s["cwd"], old)
@@ -905,6 +932,11 @@ class App(ttk.Frame):
         if not pairs:
             return False
         return self.relocate_folders(pairs, report=False, auto=True)
+
+    def _used_elsewhere(self, new, old):
+        """new 是否已經是別的對話或啟動清單項目記錄的資料夾。"""
+        return any(sessions.same_dir(c, new) for c in self._known_cwds()
+                   if not sessions.same_dir(c, old))
 
     def _moved_note(self, cwd):
         """資料夾清單的標頭補註：不在了、搬到哪。"""
@@ -1018,6 +1050,11 @@ class App(ttk.Frame):
                                   for o, n in pairs)
             self._auto_note = (tr("資料夾搬了家，已自動把 %d 條對話改到新位置（%s）")
                                % (moved, names), time.time())
+            try:
+                applog.get().info("auto relocate %d sessions: %s", moved,
+                                  "; ".join("%s -> %s" % p for p in pairs))
+            except Exception:
+                pass
             self.refresh_views()
             self.rescan()
             return True
@@ -1393,11 +1430,28 @@ class App(ttk.Frame):
         self._scan_busy = True
         self.status.configure(text=tr("掃描中…"))
         self.refresh_running()
+        first = not self.sessions
+        if first:
+            self._show_loading(tr("讀取對話紀錄中…"))
+        last = [0.0]
+
+        def progress(n, total):
+            # 只有要重讀的檔案才會回報；在背景執行緒，排回主執行緒更新
+            now = time.time()
+            if now - last[0] < 0.25 and n < total:
+                return
+            last[0] = now
+            self._post(lambda: self._scan_progress(n, total, first))
 
         def done(result, err):
             self._scan_busy = False
+            if not self._schema_started:
+                self._schema_started = True
+                self._preload_schema()
             if err or result is None:
                 self.status.configure(text=tr("掃描失敗，詳見錯誤記錄檔"))
+                if first:
+                    self._show_loading(tr("掃描失敗，詳見錯誤記錄檔（工具 → 錯誤記錄檔）"))
                 return
             self.sessions = result
             self._auto_repoint()
@@ -1406,7 +1460,23 @@ class App(ttk.Frame):
             self.update_status()
             self._check_moved()
 
-        self.run_bg(sessions.scan, done)
+        self.run_bg(lambda: sessions.scan(progress=progress), done)
+
+    def _show_loading(self, text):
+        """清單還沒有東西時，在清單裡放一列說明正在做什麼。"""
+        if self.sessions:
+            return
+        self.tree.delete(*self.tree.get_children())
+        self.tree.insert("", "end", iid="__loading__", text=text)
+
+    def _scan_progress(self, n, total, first):
+        if not self._scan_busy:
+            return
+        text = tr("讀取對話紀錄中… %d / %d") % (n, total)
+        self.status.configure(text=text)
+        if first:
+            self._show_loading(
+                text + tr("　（第一次開啟、或工作台更新後要整份重讀，之後幾秒內就好）"))
 
     def refresh_views(self):
         """重畫兩個清單，保留選取與捲動位置。就地編輯中延後執行。"""
@@ -1473,6 +1543,7 @@ class App(ttk.Frame):
             if err is not None or result is None:
                 return
             result, info, version = result
+            self._running_known = True
             background = set(info)
             self.background_info = info
             if version:
@@ -1514,7 +1585,16 @@ class App(ttk.Frame):
                 self._last_sig = sig
 
         self.run_bg(sessions.signature, done)
+        self._poll_folders()
         self.after(POLL_CHANGES_MS, self._poll_changes)
+
+    def _poll_folders(self):
+        """在檔案總管搬資料夾不會動到紀錄檔，所以另外看資料夾還在不在。
+
+        只是逐一確認路徑存不存在；不見的集合沒變就不往下找。
+        """
+        if not self._scan_busy and self.sessions:
+            self._check_moved()
 
     # ---------------- 搜尋 ----------------
     def schedule_filter(self):
@@ -2173,6 +2253,9 @@ class App(ttk.Frame):
 
     def edit_claude_settings(self):
         if not self.schema_ready:
+            if not self._schema_started:
+                self._schema_started = True
+                self._preload_schema()
             self.status.configure(text=tr("設定結構讀取中…"))
             self.after(400, self.edit_claude_settings)
             return
